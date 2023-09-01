@@ -26,40 +26,47 @@ def readOutTable(gxt, reader, name, outDirName):
 
 def gxt_processing(file_path, outDirName):
     gxt_name = os.path.splitext(os.path.basename(file_path))[0]
-    gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
-    createOutputDir(gxt_dir)
     
     with open(file_path, 'rb') as gxt:
         gxtversion = gta.gxt.getVersion(gxt)
 
         if not gxtversion:
             print('未知GXT版本！', file=sys.stderr)
-            return
+            return []
 
         print("成功识别GXT版本：{}".format(gxtversion))
 
         gxtReader = gta.gxt.getReader(gxtversion)
 
-        Tables = []
-        if gxtReader.hasTables():
-            Tables = gxtReader.parseTables(gxt)
+        if gxtversion == 'iii':
+            text_content = gxtReader.parseTKeyTDat(gxt)
+            output_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
+            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                for text in text_content:
+                    output_file.write(f"{text[0]}={text[1]}\n")
+        else:
+            gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
+            createOutputDir(gxt_dir)
+            
+            Tables = []
+            if gxtReader.hasTables():
+                Tables = gxtReader.parseTables(gxt)
 
-        for t in Tables:
-            table_name = t[0]
-            readOutTable(gxt, gxtReader, table_name, gxt_dir)
+            for t in Tables:
+                table_name = t[0]
+                readOutTable(gxt, gxtReader, table_name, gxt_dir)
 
-        # Collect the text content
-        text_content = []
-        for t in Tables:
-            table_name = t[0]
-            table_file_path = os.path.join(gxt_dir, table_name + '.txt')
-            with open(table_file_path, 'r', encoding='utf-8') as table_file:
-                text_content.append(table_file.read())
+            text_content = []
+            for t in Tables:
+                table_name = t[0]
+                table_file_path = os.path.join(gxt_dir, table_name + '.txt')
+                with open(table_file_path, 'r', encoding='utf-8') as table_file:
+                    text_content.append(table_file.read())
 
-        # Save the collected text to a same-named .txt file
-        output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
-        with open(output_txt_path, 'w', encoding='utf-8') as output_file:
-            output_file.write('\n\n'.join(text_content))
+            # Save the collected text to a same-named .txt file
+            output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
+            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                output_file.write('\n\n'.join(text_content))
 
     return text_content
 
@@ -67,8 +74,12 @@ def open_gxt_path(file_path):
     if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
         outDirName = os.path.splitext(os.path.basename(file_path))[0]
         text_content = gxt_processing(file_path, outDirName)
+        text_content = gxt_processing(file_path, outDirName)
         output_text.delete(1.0, tk.END)  # 清空文本框
-        output_text.insert(tk.END, '\n\n'.join(text_content))
+
+        # 提取文本内容并连接成字符串，显示Key=
+        content_strings = [f"{text[0]}={text[1]}" for text in text_content]
+        output_text.insert(tk.END, '\n\n'.join(content_strings))
         root.title(f"GXT 文本查看器 - {outDirName}.gxt")
     else:
         messagebox.showerror("错误", "无效的 GXT 文件路径")
@@ -98,10 +109,10 @@ def open_about_window():
     about_text.tag_config("important", font=("微软雅黑", 16), foreground="red")
     about_text.tag_config("ver", font=("微软雅黑", 15), foreground="green")
 
-    about_text.insert(tk.END, "版本号：Release V1.1\n\n", "ver")
+    about_text.insert(tk.END, "版本号：Release V1.2\n\n", "ver")
     about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n", "important")
     about_text.insert(tk.END, "本软件由Lzh10_慕黑创作\n借用GitHub上开源GXT解析代码\n", "content")
-    about_text.insert(tk.END, "温馨提示：仅支持VC和SA版本GXT解析\n\n", "important")    
+    about_text.insert(tk.END, "温馨提示：仅支持III、VC和SA版本GXT解析\n\n", "important")    
     about_text.insert(tk.END, "此工具完全免费且开源，若通过付费渠道获取均为盗版！\n", "content")
     about_text.insert(tk.END, "若您是盗版受害者，联系QQ：", "content")
     about_text.insert(tk.END, "235810290\n\n", "title")
@@ -109,7 +120,9 @@ def open_about_window():
     about_text.insert(tk.END, "开源&检测更新：\n", "content")
     about_text.insert(tk.END, "https://github.com/Lzh102938/VC.SAGXTExtracter\n\n", "title")    
     about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n\n", "important")
-    about_text.insert(tk.END, "更新日志：\nV1.1添加了TABLE分文本功能", "content")
+    about_text.insert(tk.END, "更新日志：", "content")
+    about_text.insert(tk.END, "\nV1.2修复了命令行输入导致输入路径错误问题，支援GTA3", "content")
+    about_text.insert(tk.END, "\nV1.1添加了TABLE分文本功能", "content")
 
     # Add a scroll bar
     scroll_bar = tk.Scrollbar(about_text)
@@ -121,7 +134,7 @@ def open_about_window():
 
 if len(sys.argv) > 1:
     gxt_to_open = sys.argv[1]
-    open_gxt_path(gxt_to_open)
+    gxt_processing(gxt_to_open, os.path.splitext(os.path.basename(gxt_to_open))[0])
 else:
     root = tk.Tk()
     root.title("GXT 文本查看器")

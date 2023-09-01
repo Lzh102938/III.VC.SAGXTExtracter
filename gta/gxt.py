@@ -1,6 +1,35 @@
 import struct
 import os
 
+class III:
+    def __init__(self):
+        pass
+
+    def hasTables(self):
+        return False  # III version doesn't have TABLEs
+
+    def parseTables(self, stream):
+        return []  # III version doesn't have TABLEs
+
+    def parseTKeyTDat(self, stream):
+        size = findBlock(stream, 'TKEY')
+
+        TKey = []
+        for i in range(int(size / 12)):  # TKEY entry size - 12
+            TKey.append(struct.unpack('I8s', stream.read(12)))
+
+        datSize = findBlock(stream, 'TDAT')
+        TDat = stream.read(datSize)
+
+        Entries = []
+
+        for entry in TKey:
+            key = entry[1]
+            value = TDat[entry[0]:].decode('utf-16').split('\x00', 1)[0]
+            Entries.append((key.split(b'\x00')[0].decode(), value))  # TODO: charmap
+
+        return Entries
+
 class VC:    
     def hasTables(self):
         return True
@@ -83,6 +112,9 @@ def getVersion(stream):
     if bytes[:4] == 'TABL'.encode():
         return 'vc'
 
+    if bytes[:4] == 'TKEY'.encode():
+        return 'iii'
+
     return None
 
 def getReader(version):
@@ -92,6 +124,8 @@ def getReader(version):
         return SA()
     if version == 'sa-mobile':
         return SA()
+    if version == 'iii':
+        return III()
     return None
 
 # Internal functions
