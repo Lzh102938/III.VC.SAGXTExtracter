@@ -84,12 +84,12 @@ def open_gxt_path(file_path):
         else:
             messagebox.showerror("错误", "找不到同名的txt文本文件")
         
-        root.title(f"GXT 文本查看器 - {outDirName}.gxt")
+        root.title(f"GXT文本查看器 By：Lzh10_慕黑 - {outDirName}.gxt")
     else:
-        messagebox.showerror("错误", "无效的 GXT 文件路径")
+        messagebox.showerror("错误", "无效的GXT文件路径")
 
 def select_gxt_file():
-    file_path = filedialog.askopenfilename(filetypes=[("GXT 文件", "*.gxt")])
+    file_path = filedialog.askopenfilename(filetypes=[("GXT文件", "*.gxt")])
     if file_path:
         gxt_path_entry.delete(0, tk.END)  # 清空输入框
         gxt_path_entry.insert(0, file_path)
@@ -113,7 +113,8 @@ def open_about_window():
     about_text.tag_config("important", font=("微软雅黑", 16), foreground="red")
     about_text.tag_config("ver", font=("微软雅黑", 15), foreground="green")
 
-    about_text.insert(tk.END, "版本号：Release V1.2\n\n", "ver")
+    about_text.insert(tk.END, "版本号：Release Version 1.2\n", "ver")
+    about_text.insert(tk.END, "更新日期：2023年9月3日\n\n", "ver")
     about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n", "important")
     about_text.insert(tk.END, "本软件由Lzh10_慕黑创作\n借用GitHub上开源GXT解析代码\n", "content")
     about_text.insert(tk.END, "温馨提示：仅支持III、VC和SA版本GXT解析\n\n", "important")    
@@ -122,7 +123,7 @@ def open_about_window():
     about_text.insert(tk.END, "235810290\n\n", "title")
     about_text.insert(tk.END, "免责声明：使用本软件导致的版权问题概不负责！\n\n", "warning")
     about_text.insert(tk.END, "开源&检测更新：\n", "content")
-    about_text.insert(tk.END, "https://github.com/Lzh102938/VC.SAGXTExtracter\n\n", "title")    
+    about_text.insert(tk.END, "https://github.com/Lzh102938/III.VC.SAGXTExtracter\n\n", "title")    
     about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n\n", "important")
     about_text.insert(tk.END, "更新日志：", "content")
     about_text.insert(tk.END, "\nV1.2修复了命令行输入导致输入路径错误问题，支援GTA3", "content")
@@ -143,7 +144,7 @@ def open_gxt_from_command_line():
         root.mainloop()
 
 root = tk.Tk()
-root.title("GXT 文本查看器")
+root.title("GXT文本查看器 By：Lzh10_慕黑")
 
 gxt_path_label = tk.Label(root, text="GXT 路径：")
 gxt_path_label.pack(padx=10, pady=5, anchor="w")
