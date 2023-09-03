@@ -31,10 +31,10 @@ def gxt_processing(file_path, outDirName):
         gxtversion = gta.gxt.getVersion(gxt)
 
         if not gxtversion:
-            print('未知GXT版本！', file=sys.stderr)
+            messagebox.showerror("错误", "未知GXT版本！")
             return []
 
-        print("成功识别GXT版本：{}".format(gxtversion))
+        messagebox.showinfo("提示", f"成功识别GXT版本：{gxtversion}")
 
         gxtReader = gta.gxt.getReader(gxtversion)
 
@@ -74,12 +74,16 @@ def open_gxt_path(file_path):
     if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
         outDirName = os.path.splitext(os.path.basename(file_path))[0]
         text_content = gxt_processing(file_path, outDirName)
-        text_content = gxt_processing(file_path, outDirName)
         output_text.delete(1.0, tk.END)  # 清空文本框
 
-        # 提取文本内容并连接成字符串，显示Key=
-        content_strings = [f"{text[0]}={text[1]}" for text in text_content]
-        output_text.insert(tk.END, '\n\n'.join(content_strings))
+        # 读取同名的txt文本文件并显示在文本框中
+        output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
+        if os.path.isfile(output_txt_path):
+            with open(output_txt_path, 'r', encoding='utf-8') as output_file:
+                output_text.insert(tk.END, output_file.read())
+        else:
+            messagebox.showerror("错误", "找不到同名的txt文本文件")
+        
         root.title(f"GXT 文本查看器 - {outDirName}.gxt")
     else:
         messagebox.showerror("错误", "无效的 GXT 文件路径")
@@ -132,33 +136,37 @@ def open_about_window():
 
     about_text.config(state=tk.DISABLED)
 
-if len(sys.argv) > 1:
-    gxt_to_open = sys.argv[1]
-    gxt_processing(gxt_to_open, os.path.splitext(os.path.basename(gxt_to_open))[0])
-else:
-    root = tk.Tk()
-    root.title("GXT 文本查看器")
+def open_gxt_from_command_line():
+    if len(sys.argv) > 1:
+        file_path = sys.argv[1]
+        open_gxt_path(file_path)
+        root.mainloop()
 
-    gxt_path_label = tk.Label(root, text="GXT 路径：")
-    gxt_path_label.pack(padx=10, pady=5, anchor="w")
+root = tk.Tk()
+root.title("GXT 文本查看器")
 
-    gxt_path_entry = tk.Entry(root, width=50)
-    gxt_path_entry.pack(padx=10, pady=0)
+gxt_path_label = tk.Label(root, text="GXT 路径：")
+gxt_path_label.pack(padx=10, pady=5, anchor="w")
 
-    select_button = tk.Button(root, text="选择 GXT 文件", command=select_gxt_file)
-    select_button.pack(padx=10, pady=5)
+gxt_path_entry = tk.Entry(root, width=50)
+gxt_path_entry.pack(padx=10, pady=0)
 
-    open_button = tk.Button(root, text="打开", command=open_gxt_from_input)
-    open_button.pack(padx=10, pady=5)
+select_button = tk.Button(root, text="选择 GXT 文件", command=select_gxt_file)
+select_button.pack(padx=10, pady=5)
 
-    about_button = tk.Button(root, text="关于", command=open_about_window)
-    about_button.pack(padx=10, pady=5)
+open_button = tk.Button(root, text="打开", command=open_gxt_from_input)
+open_button.pack(padx=10, pady=5)
 
-    # 创建自定义字体
-    font_style = tkFont.Font(family="微软雅黑", size=12)  # 可根据需要调整字体和大小
+about_button = tk.Button(root, text="关于", command=open_about_window)
+about_button.pack(padx=10, pady=5)
 
-    # 创建输出文本框
-    output_text = scrolledtext.ScrolledText(root, wrap=tk.NONE, width=80, height=20, font=font_style)
-    output_text.pack(padx=10, pady=5)
+# 创建自定义字体
+font_style = tkFont.Font(family="微软雅黑", size=12)  # 可根据需要调整字体和大小
 
-    root.mainloop()
+# 创建输出文本框
+output_text = scrolledtext.ScrolledText(root, wrap=tk.NONE, width=80, height=20, font=font_style)
+output_text.pack(padx=10, pady=5)
+
+open_gxt_from_command_line()
+
+root.mainloop()
