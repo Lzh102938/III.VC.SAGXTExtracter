@@ -1,173 +1,198 @@
 import os
 import errno
 import gta.gxt
-import tkinter as tk
-import tkinter.font as tkFont
-from tkinter import scrolledtext
-from tkinter import filedialog
-from tkinter import messagebox
+from PyQt5 import QtWidgets, QtGui, Qt
+from PyQt5.QtWidgets import QFileDialog, QTextBrowser, QMessageBox
+from PyQt5.QtCore import QUrl
 import sys
 
-def createOutputDir(path):
-    try:
-        os.makedirs(path)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
+class GXTViewer(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
 
-def readOutTable(gxt, reader, name, outDirName):
-    output_file_path = os.path.join(outDirName, name + '.txt')
+    def initUI(self):
+        self.setWindowTitle("GXT文本查看器 By：Lzh10_慕黑")
+        self.resize(800, 600)  # Set the initial window size to 800x600
 
-    with open(output_file_path, 'w', encoding='utf-8') as f:
-        f.write(f'[{name}]\n')  # 在文件顶部添加原始文件名
+        font = QtGui.QFont("Microsoft YaHei UI", 9)
+        app = QtWidgets.QApplication.instance()
+        app.setFont(font)
 
-        for text in reader.parseTKeyTDat(gxt):
-            f.write(text[0] + '=' + text[1] + '\n')
+        layout = QtWidgets.QVBoxLayout()
 
-def gxt_processing(file_path, outDirName):
-    gxt_name = os.path.splitext(os.path.basename(file_path))[0]
-    
-    with open(file_path, 'rb') as gxt:
-        gxtversion = gta.gxt.getVersion(gxt)
+        self.gxt_path_label = QtWidgets.QLabel("GXT 路径:")
+        layout.addWidget(self.gxt_path_label)
 
-        if not gxtversion:
-            messagebox.showerror("错误", "未知GXT版本！")
+        self.gxt_path_entry = QtWidgets.QLineEdit(self)
+        layout.addWidget(self.gxt_path_entry)
+
+        self.select_button = QtWidgets.QPushButton("选择 GXT 文件", self)
+        self.select_button.clicked.connect(self.select_gxt_file)
+        layout.addWidget(self.select_button)
+
+        self.open_button = QtWidgets.QPushButton("打开", self)
+        self.open_button.clicked.connect(self.open_gxt_from_input)
+        layout.addWidget(self.open_button)
+
+        self.about_button = QtWidgets.QPushButton("关于", self)
+        self.about_button.clicked.connect(self.open_about_window)
+        layout.addWidget(self.about_button)
+
+        self.output_text = QTextBrowser(self)
+        layout.addWidget(self.output_text)
+
+        self.setLayout(layout)
+
+    def createOutputDir(self, path):
+        try:
+            os.makedirs(path)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+    def readOutTable(self, gxt, reader, name, outDirName):
+        output_file_path = os.path.join(outDirName, name + '.txt')
+
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            f.write(f'[{name}]\n')
+
+            for text in reader.parseTKeyTDat(gxt):
+                f.write(text[0] + '=' + text[1] + '\n')
+
+    def gxt_processing(self, file_path, outDirName):
+        gxt_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        try:
+            with open(file_path, 'rb') as gxt:
+                gxtversion = gta.gxt.getVersion(gxt)
+
+                if not gxtversion:
+                    QMessageBox.critical(self, "错误", "未知GXT版本！")
+                    return []
+
+                QMessageBox.information(self, "提示", f"成功识别GXT版本：{gxtversion}")
+
+                gxtReader = gta.gxt.getReader(gxtversion)
+
+                if gxtversion == 'iii':
+                    text_content = gxtReader.parseTKeyTDat(gxt)
+                    output_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
+                    with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                        for text in text_content:
+                            output_file.write(f"{text[0]}={text[1]}\n")
+                else:
+                    gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
+                    self.createOutputDir(gxt_dir)
+
+                    Tables = []
+                    if gxtReader.hasTables():
+                        Tables = gxtReader.parseTables(gxt)
+
+                    for t in Tables:
+                        table_name = t[0]
+                        self.readOutTable(gxt, gxtReader, table_name, gxt_dir)
+
+                    text_content = []
+                    for t in Tables:
+                        table_name = t[0]
+                        table_file_path = os.path.join(gxt_dir, table_name + '.txt')
+                        with open(table_file_path, 'r', encoding='utf-8') as table_file:
+                            text_content.append(table_file.read())
+
+                    output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
+                    with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                        output_file.write('\n\n'.join(text_content))
+
+                return text_content
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开GXT文件时出错: {str(e)}")
             return []
 
-        messagebox.showinfo("提示", f"成功识别GXT版本：{gxtversion}")
+    def open_gxt_path(self, file_path):
+        if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
+            outDirName = os.path.splitext(os.path.basename(file_path))[0]
+            text_content = self.gxt_processing(file_path, outDirName)
+            self.output_text.clear()
 
-        gxtReader = gta.gxt.getReader(gxtversion)
-
-        if gxtversion == 'iii':
-            text_content = gxtReader.parseTKeyTDat(gxt)
-            output_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
-            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
-                for text in text_content:
-                    output_file.write(f"{text[0]}={text[1]}\n")
-        else:
-            gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
-            createOutputDir(gxt_dir)
-            
-            Tables = []
-            if gxtReader.hasTables():
-                Tables = gxtReader.parseTables(gxt)
-
-            for t in Tables:
-                table_name = t[0]
-                readOutTable(gxt, gxtReader, table_name, gxt_dir)
-
-            text_content = []
-            for t in Tables:
-                table_name = t[0]
-                table_file_path = os.path.join(gxt_dir, table_name + '.txt')
-                with open(table_file_path, 'r', encoding='utf-8') as table_file:
-                    text_content.append(table_file.read())
-
-            # Save the collected text to a same-named .txt file
             output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
-            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
-                output_file.write('\n\n'.join(text_content))
-
-    return text_content
-
-def open_gxt_path(file_path):
-    if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
-        outDirName = os.path.splitext(os.path.basename(file_path))[0]
-        text_content = gxt_processing(file_path, outDirName)
-        output_text.delete(1.0, tk.END)  # 清空文本框
-
-        # 读取同名的txt文本文件并显示在文本框中
-        output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
-        if os.path.isfile(output_txt_path):
-            with open(output_txt_path, 'r', encoding='utf-8') as output_file:
-                output_text.insert(tk.END, output_file.read())
+            if os.path.isfile(output_txt_path):
+                with open(output_txt_path, 'r', encoding='utf-8') as output_file:
+                    self.output_text.setPlainText(output_file.read())
+            else:
+                QMessageBox.critical(self, "错误", "找不到同名的txt文本文件")
         else:
-            messagebox.showerror("错误", "找不到同名的txt文本文件")
-        
-        root.title(f"GXT文本查看器 By：Lzh10_慕黑 - {outDirName}.gxt")
+            QMessageBox.critical(self, "错误", "无效的GXT文件路径")
+
+    def select_gxt_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择GXT文件", "", "GXT文件 (*.gxt)")
+        if file_path:
+            self.gxt_path_entry.clear()
+            self.gxt_path_entry.setText(file_path)
+            self.open_gxt_path(file_path)
+
+    def open_gxt_from_input(self):
+        file_path = self.gxt_path_entry.text()
+        self.open_gxt_path(file_path)
+
+    def open_about_window(self):
+        about_text = """
+        版本号：Release Version 1.2.1<br/>
+        更新日期：2023年11月4日<br/><br/>
+
+        ☆☆☆☆★★★★★★☆☆☆☆<br/><br/>
+
+        本软件由Lzh10_慕黑创作<br/>
+        借用GitHub上开源GXT解析代码<br/>
+
+        温馨提示：仅支持III、VC和SA版本GXT解析<br/><br/>
+
+        此工具完全免费且开源，若通过付费渠道获取均为盗版！<br/>
+        若您是盗版受害者，联系QQ：<a href="tencent://message/?uin=235810290&Site=&Menu=yes" 
+        target="_blank" title="点击添加好友">235810290</a><br/><br/>
+
+        免责声明：使用本软件导致的版权问题概不负责！<br/><br/>
+
+        开源&检测更新：<a href="https://github.com/Lzh102938/III.VC.SAGXTExtracter">https://github.com/Lzh102938/III.VC.SAGXTExtracter<br/><br/></a>
+
+        ☆☆☆☆★★★★★★☆☆☆☆<br/><br/>
+
+        更新日志：<br/>
+        V1.2.1 重构GUI，可自由改变窗口大小分辨率<br/>
+        V1.2 修复了命令行输入导致输入路径错误问题，支援GTA3<br/>
+        V1.1 添加了TABLE分文本功能<br/>
+        """
+
+        about_dialog = QtWidgets.QMessageBox(self)
+        about_dialog.setWindowTitle("关于")
+        about_dialog.setText(about_text)
+        about_dialog.setIcon(QtWidgets.QMessageBox.Information)
+        about_dialog.exec_()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and len(event.mimeData().urls()) == 1:
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile() and url.toLocalFile().lower().endswith(".gxt"):
+                event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        url = event.mimeData().urls()[0]
+        gxt_path = url.toLocalFile()
+        self.open_gxt_path(gxt_path)
+
+def main():
+    app = QtWidgets.QApplication([])
+
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".gxt"):
+        gxt_path = sys.argv[1]
+        window = GXTViewer()
+        window.show()
+        window.open_gxt_path(gxt_path)
     else:
-        messagebox.showerror("错误", "无效的GXT文件路径")
+        window = GXTViewer()
+        window.show()
 
-def select_gxt_file():
-    file_path = filedialog.askopenfilename(filetypes=[("GXT文件", "*.gxt")])
-    if file_path:
-        gxt_path_entry.delete(0, tk.END)  # 清空输入框
-        gxt_path_entry.insert(0, file_path)
-        open_gxt_path(file_path)
+    app.exec_()
 
-def open_gxt_from_input():
-    file_path = gxt_path_entry.get()
-    open_gxt_path(file_path)
-
-def open_about_window():
-    about_window = tk.Toplevel(root)
-    about_window.title("关于")
-    about_window.geometry("640x480")  # Set the window size to 640x480
-
-    about_text = tk.Text(about_window, wrap=tk.WORD, font=("微软雅黑", 16))
-    about_text.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-    about_text.tag_config("title", font=("微软雅黑", 16, "bold"))
-    about_text.tag_config("content", font=("微软雅黑", 15))
-    about_text.tag_config("warning", font=("微软雅黑", 17, "bold"), foreground="red")
-    about_text.tag_config("important", font=("微软雅黑", 16), foreground="red")
-    about_text.tag_config("ver", font=("微软雅黑", 15), foreground="green")
-
-    about_text.insert(tk.END, "版本号：Release Version 1.2\n", "ver")
-    about_text.insert(tk.END, "更新日期：2023年9月3日\n\n", "ver")
-    about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n", "important")
-    about_text.insert(tk.END, "本软件由Lzh10_慕黑创作\n借用GitHub上开源GXT解析代码\n", "content")
-    about_text.insert(tk.END, "温馨提示：仅支持III、VC和SA版本GXT解析\n\n", "important")    
-    about_text.insert(tk.END, "此工具完全免费且开源，若通过付费渠道获取均为盗版！\n", "content")
-    about_text.insert(tk.END, "若您是盗版受害者，联系QQ：", "content")
-    about_text.insert(tk.END, "235810290\n\n", "title")
-    about_text.insert(tk.END, "免责声明：使用本软件导致的版权问题概不负责！\n\n", "warning")
-    about_text.insert(tk.END, "开源&检测更新：\n", "content")
-    about_text.insert(tk.END, "https://github.com/Lzh102938/III.VC.SAGXTExtracter\n\n", "title")    
-    about_text.insert(tk.END, "☆☆☆☆★★★★★★☆☆☆☆\n\n", "important")
-    about_text.insert(tk.END, "更新日志：", "content")
-    about_text.insert(tk.END, "\nV1.2修复了命令行输入导致输入路径错误问题，支援GTA3", "content")
-    about_text.insert(tk.END, "\nV1.1添加了TABLE分文本功能", "content")
-
-    # Add a scroll bar
-    scroll_bar = tk.Scrollbar(about_text)
-    scroll_bar.pack(side=tk.RIGHT, fill=tk.Y)
-    scroll_bar.config(command=about_text.yview)
-    about_text.config(yscrollcommand=scroll_bar.set)
-
-    about_text.config(state=tk.DISABLED)
-
-def open_gxt_from_command_line():
-    if len(sys.argv) > 1:
-        file_path = sys.argv[1]
-        open_gxt_path(file_path)
-        root.mainloop()
-
-root = tk.Tk()
-root.title("GXT文本查看器 By：Lzh10_慕黑")
-
-gxt_path_label = tk.Label(root, text="GXT 路径：")
-gxt_path_label.pack(padx=10, pady=5, anchor="w")
-
-gxt_path_entry = tk.Entry(root, width=50)
-gxt_path_entry.pack(padx=10, pady=0)
-
-select_button = tk.Button(root, text="选择 GXT 文件", command=select_gxt_file)
-select_button.pack(padx=10, pady=5)
-
-open_button = tk.Button(root, text="打开", command=open_gxt_from_input)
-open_button.pack(padx=10, pady=5)
-
-about_button = tk.Button(root, text="关于", command=open_about_window)
-about_button.pack(padx=10, pady=5)
-
-# 创建自定义字体
-font_style = tkFont.Font(family="微软雅黑", size=12)  # 可根据需要调整字体和大小
-
-# 创建输出文本框
-output_text = scrolledtext.ScrolledText(root, wrap=tk.NONE, width=80, height=20, font=font_style)
-output_text.pack(padx=10, pady=5)
-
-open_gxt_from_command_line()
-
-root.mainloop()
+if __name__ == '__main__':
+    main()
