@@ -1,10 +1,21 @@
 import os
 import errno
 import gta.gxt
-from PyQt5 import QtWidgets, QtGui, Qt
-from PyQt5.QtWidgets import QFileDialog, QTextBrowser, QMessageBox
-from PyQt5.QtCore import QUrl
+import ctypes
+from PyQt5 import QtWidgets, QtGui, Qt, QtCore
+from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QGroupBox, QFileDialog, QMessageBox, QTextBrowser, QMainWindow
+from PyQt5.QtCore import QUrl, Qt
+from PyQt5.QtGui import QIcon
 import sys
+
+myappid = "III.VC.SAGXTExtracter"
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
+class ClickableLabel(QLabel):
+    clicked = QtCore.pyqtSignal()
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
 
 class GXTViewer(QtWidgets.QWidget):
     def __init__(self):
@@ -12,37 +23,91 @@ class GXTViewer(QtWidgets.QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("GXT文本查看器 By：Lzh10_慕黑")
-        self.resize(800, 600)  # Set the initial window size to 800x600
+        self.setWindowIcon(QIcon('./favicon.ico'))
+        self.setWindowTitle("GXT文本查看器 - By：Lzh10_慕黑")
+        self.resize(960, 618)  # Set the initial window size to 800x600
 
-        font = QtGui.QFont("Microsoft YaHei UI", 9)
+        font = QtGui.QFont("Microsoft YaHei UI", 10)
         app = QtWidgets.QApplication.instance()
         app.setFont(font)
 
         layout = QtWidgets.QVBoxLayout()
-
-        self.gxt_path_label = QtWidgets.QLabel("GXT 路径:")
-        layout.addWidget(self.gxt_path_label)
-
+        
         self.gxt_path_entry = QtWidgets.QLineEdit(self)
+
+        # 设置布局
+        layout = QtWidgets.QVBoxLayout()
+
+        # 添加文本框
         layout.addWidget(self.gxt_path_entry)
+        
+        # Title label (Clickable for About)
+        self.title_label = ClickableLabel("<h1>GXT文本查看器</h1>")
+        self.title_label.setOpenExternalLinks(True)
+        self.title_label.setToolTip("点击以显示「关于」")
+        self.title_label.clicked.connect(self.open_about_window)  # 连接到打开关于窗口的槽函数
+        layout.addWidget(self.title_label)
 
-        self.select_button = QtWidgets.QPushButton("选择 GXT 文件", self)
-        self.select_button.clicked.connect(self.select_gxt_file)
-        layout.addWidget(self.select_button)
+        # Create group box for buttons
+        button_groupbox = QGroupBox("操作")
+        button_layout = QVBoxLayout()
 
-        self.open_button = QtWidgets.QPushButton("打开", self)
-        self.open_button.clicked.connect(self.open_gxt_from_input)
-        layout.addWidget(self.open_button)
+        # Browse GXT Button
+        self.browse_button = QPushButton("📄 浏览GXT", self)
+        self.browse_button.clicked.connect(self.select_gxt_file)
+        self.browse_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        button_layout.addWidget(self.browse_button)
+        
+        # Convert Button
+        self.convert_button = QPushButton("🔄 码表转换", self)
+        self.convert_button.clicked.connect(self.convert_using_table)
+        self.convert_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        button_layout.addWidget(self.convert_button)
 
-        self.about_button = QtWidgets.QPushButton("关于", self)
-        self.about_button.clicked.connect(self.open_about_window)
-        layout.addWidget(self.about_button)
+        button_groupbox.setLayout(button_layout)
+        layout.addWidget(button_groupbox)
 
+        # Output Text Browser
         self.output_text = QTextBrowser(self)
+        self.output_text.setFont(QtGui.QFont("Microsoft YaHei UI", 12))
         layout.addWidget(self.output_text)
 
+        # Set layout
         self.setLayout(layout)
+        
+        # Enable drag and drop
+        self.setAcceptDrops(True)
+        
+    def convert_using_table(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择转换表文件", "", "文本文件 (*.txt)")
+        if file_path:
+            with open(file_path, 'r', encoding='utf-8') as table_file:
+                hex_table = table_file.readlines()  # 读取转换表
+
+            # 将非ASCII字符转换为对应的字符
+            converted_text = ""
+            input_text = self.output_text.toPlainText()  # 获取当前文本框中的文本
+            for char in input_text:
+                if ord(char) > 127:  # 非ASCII字符
+                    hex_value = f"{ord(char):04x}"
+                    for line in hex_table:
+                        line = line.strip().split('\t')
+                        if len(line) == 2 and line[1] == hex_value:
+                            converted_text += line[0]
+                            break
+                    else:
+                        converted_text += char
+                else:
+                    converted_text += char
+                    
+            self.output_text.setPlainText(converted_text)
+
+            # 保存转换后的文本到txt文件中
+            output_txt_path = os.path.join(os.path.dirname(file_path), "converted_text.txt")
+            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                output_file.write(converted_text)
+
+            QMessageBox.information(self, "提示", "文本转换完成并保存到converted_text.txt")
 
     def createOutputDir(self, path):
         try:
@@ -120,29 +185,32 @@ class GXTViewer(QtWidgets.QWidget):
                 with open(output_txt_path, 'r', encoding='utf-8') as output_file:
                     self.output_text.setPlainText(output_file.read())
             else:
-                QMessageBox.critical(self, "错误", "找不到同名的txt文本文件")
+                QMessageBox.critical(self, "错误", "找不到同名的txt文本文件！")
         else:
-            QMessageBox.critical(self, "错误", "无效的GXT文件路径")
+            QMessageBox.critical(self, "错误", "无效的GXT文件路径！")
 
     def select_gxt_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择GXT文件", "", "GXT文件 (*.gxt)")
-        if file_path:
-            self.gxt_path_entry.clear()
-            self.gxt_path_entry.setText(file_path)
-            self.open_gxt_path(file_path)
-
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(self, "选择GXT文件", "", "GXT文件 (*.gxt)")
+            if file_path:
+                self.gxt_path_entry.clear()
+                self.gxt_path_entry.setText(file_path)
+                self.open_gxt_path(file_path)
+        except Exception as e:
+            print("Error:", e)
+        
     def open_gxt_from_input(self):
         file_path = self.gxt_path_entry.text()
         self.open_gxt_path(file_path)
 
     def open_about_window(self):
         about_text = """
-        版本号：Release Version 1.2.1<br/>
-        更新日期：2023年11月4日<br/><br/>
+        版本号：Release Version 1.2.3<br/>
+        更新日期：2024年3月30日<br/><br/>
 
-        ☆☆☆☆★★★★★★☆☆☆☆<br/><br/>
+        ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––<br/><br/>
 
-        本软件由Lzh10_慕黑创作<br/>
+        本软件由「Lzh10_慕黑」创作<br/>
         借用GitHub上开源GXT解析代码<br/>
 
         温馨提示：仅支持III、VC和SA版本GXT解析<br/><br/>
@@ -155,12 +223,16 @@ class GXTViewer(QtWidgets.QWidget):
 
         开源&检测更新：<a href="https://github.com/Lzh102938/III.VC.SAGXTExtracter">https://github.com/Lzh102938/III.VC.SAGXTExtracter<br/><br/></a>
 
-        ☆☆☆☆★★★★★★☆☆☆☆<br/><br/>
+        ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––<br/><br/>
 
-        更新日志：<br/>
+        更新日志：<br/>        
+        ☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆<br/>
+        V1.2.3 优化GUI，按钮变为圆角设计，添加文件拖入窗口输入操作<br/>
+        V1.2.2 添加功能，实现提取文本进行码表转换功能<br/>
         V1.2.1 重构GUI，可自由改变窗口大小分辨率<br/>
-        V1.2 修复了命令行输入导致输入路径错误问题，支援GTA3<br/>
-        V1.1 添加了TABLE分文本功能<br/>
+        V1.2   修复了命令行输入导致输入路径错误问题，支援GTA3<br/>
+        V1.1   添加了TABLE分文本功能<br/>
+        ☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆<br/>
         """
 
         about_dialog = QtWidgets.QMessageBox(self)
@@ -183,14 +255,12 @@ class GXTViewer(QtWidgets.QWidget):
 def main():
     app = QtWidgets.QApplication([])
 
+    window = GXTViewer()
+    window.show()
+
     if len(sys.argv) == 2 and sys.argv[1].endswith(".gxt"):
         gxt_path = sys.argv[1]
-        window = GXTViewer()
-        window.show()
         window.open_gxt_path(gxt_path)
-    else:
-        window = GXTViewer()
-        window.show()
 
     app.exec_()
 
