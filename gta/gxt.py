@@ -30,7 +30,7 @@ class III:
 
         return Entries
 
-class VC:    
+class VC:
     def hasTables(self):
         return True
 
@@ -39,11 +39,11 @@ class VC:
 
     def parseTKeyTDat(self, stream):
         size = findBlock(stream, 'TKEY')
-        
+
         TKey = []
-        for i in range(int(size / 12)): # TKEY entry size - 12
-            TKey.append( struct.unpack('I8s', stream.read(12)) )
-        
+        for i in range(int(size / 12)):  # TKEY entry size - 12
+            TKey.append(struct.unpack('I8s', stream.read(12)))
+
         datSize = findBlock(stream, 'TDAT')
         TDat = stream.read(datSize)
 
@@ -51,9 +51,9 @@ class VC:
 
         for entry in TKey:
             key = entry[1]
-            value = TDat[entry[0]:].decode('utf-16').split('\x00', 1) [0]
-            Entries.append( (key.split(b'\x00')[0].decode(), value) ) # TODO: charmap
-        
+            value = TDat[entry[0]:].decode('utf-16').split('\x00', 1)[0]
+            Entries.append((key.split(b'\x00')[0].decode(), value))  # TODO: charmap
+
         return Entries
 
 class SA:
@@ -89,6 +89,46 @@ class SA:
 
         return Entries
 
+class IV:
+    def __init__(self):
+        pass
+
+    def hasTables(self):
+        return True
+
+    def parseTables(self, stream):
+        return _parseTables(stream)
+
+    def parseTKeyTDat(self, stream):
+        size = findBlock(stream, 'TKEY')
+
+        TKey = []
+        for i in range(int(size / 8)):  # TKEY entry size - 8
+            TKey.append(struct.unpack('II', stream.read(8)))
+
+        datSize = findBlock(stream, 'TDAT')
+        TDat = stream.read(datSize)
+
+        Entries = []
+
+        for entry in TKey:
+            dat_offset, crc = entry
+            entry_bytes_start_offset = dat_offset
+            entry_bytes_cur_offset = 0
+            dat_str = str()
+            
+            while True:
+                unicode_char, = struct.unpack('H', TDat[entry_bytes_start_offset + entry_bytes_cur_offset:entry_bytes_start_offset + entry_bytes_cur_offset + 2])
+                entry_bytes_cur_offset += 2
+                if unicode_char != 0:
+                    dat_str += chr(unicode_char)
+                else:
+                    break
+            
+            # TODO: 过滤/替换不支持的原版字符
+            Entries.append((f'{crc:08X}', dat_str))
+
+        return Entries
 
 def findBlock(stream, block):
     while stream.peek(4)[:4] != block.encode():
@@ -101,18 +141,23 @@ def findBlock(stream, block):
 def getVersion(stream):
     bytes = stream.peek(8)[:8]
 
+    # IV (Ensure this check is above SA checks to prevent incorrect matching)
+    version, bits_per_char = struct.unpack('HH', bytes[:4])
+    if version == 4 and bits_per_char == 16:
+        return 'iv'
+
     # SA
     word1, word2 = struct.unpack('HH', bytes[:4])
-    if word1 == 4 and bytes[4:] == 'TABL'.encode():
+    if word1 == 4 and bytes[4:] == b'TABL':
         if word2 == 8:
             return 'sa'
         if word2 == 16:
             return 'sa-mobile'
 
-    if bytes[:4] == 'TABL'.encode():
+    if bytes[:4] == b'TABL':
         return 'vc'
 
-    if bytes[:4] == 'TKEY'.encode():
+    if bytes[:4] == b'TKEY':
         return 'iii'
 
     return None
@@ -126,6 +171,8 @@ def getReader(version):
         return SA()
     if version == 'iii':
         return III()
+    if version == 'iv':
+        return IV()
     return None
 
 # Internal functions

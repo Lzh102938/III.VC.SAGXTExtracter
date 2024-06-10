@@ -205,8 +205,8 @@ class GXTViewer(QtWidgets.QWidget):
 
     def open_about_window(self):
         about_text = """
-        版本号：Release Version 1.2.3<br/>
-        更新日期：2024年3月30日<br/><br/>
+        版本号：Release Version 1.2.4<br/>
+        更新日期：2024年6月10日<br/><br/>
 
         ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––<br/><br/>
 
@@ -227,6 +227,7 @@ class GXTViewer(QtWidgets.QWidget):
 
         更新日志：<br/>        
         ☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆<br/>
+        V1.2.4 添加针对GTAIV的GXT解析（不包括中文）<br/>
         V1.2.3 优化GUI，按钮变为圆角设计，添加文件拖入窗口输入操作<br/>
         V1.2.2 添加功能，实现提取文本进行码表转换功能<br/>
         V1.2.1 重构GUI，可自由改变窗口大小分辨率<br/>
