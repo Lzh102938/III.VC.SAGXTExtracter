@@ -34,6 +34,7 @@ class CustomTableWidgetItem(QTableWidgetItem):
 class GXTViewer(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
+        self.gxt_file_path = None  # Store GXT file path here
         self.initUI()
 
     def initUI(self):
@@ -92,53 +93,62 @@ class GXTViewer(QtWidgets.QWidget):
         self.setAcceptDrops(True)
 
     def convert_using_table(self):
+        # 获取转换表文件路径
         file_path, _ = QFileDialog.getOpenFileName(self, "选择转换表文件", "", "文本文件 (*.txt)")
         if file_path:
-            with open(file_path, 'r', encoding='utf-8') as table_file:
-                hex_table = table_file.readlines()  # 读取转换表
+            try:
+                # 获取GXT文件生成的TXT文件路径
+                gxt_file_path = self.gxt_file_path or self.gxt_path_entry.text()
+                if not gxt_file_path:
+                    gxt_file_path, _ = QFileDialog.getOpenFileName(self, "选择GXT文件", "", "GXT文件 (*.gxt)")
+                    if not gxt_file_path:
+                        raise FileNotFoundError("GXT文件路径未提供或选择")
 
-            # 创建转换表的字典
-            conversion_dict = {}
-            for line in hex_table:
-                line = line.strip().split('\t')
-                if len(line) == 2:
-                    conversion_dict[line[1]] = line[0]
+                gxt_txt_path = os.path.splitext(gxt_file_path)[0] + '.txt'
 
-            converted_lines = []
-            # 遍历表格内容进行转换
-            for row in range(self.output_table.rowCount()):
-                key_item = self.output_table.item(row, 0)
-                value_item = self.output_table.item(row, 1)
-                if key_item and value_item:
-                    key = key_item.text()
-                    value = value_item.text()
-                    converted_value = ""
-                    for char in value:
-                        if ord(char) > 127:  # 非ASCII字符
-                            hex_value = f"{ord(char):04x}"
-                            converted_value += conversion_dict.get(hex_value, char)
-                        else:
-                            converted_value += char
-                    # 保存转换后的值
-                    converted_lines.append(f"{key}={converted_value}")
+                # 重新读取GXT目录下的同名TXT文件作为文本源
+                with open(gxt_txt_path, 'r', encoding='utf-8') as gxt_txt_file:
+                    converted_lines = gxt_txt_file.readlines()
 
-                    # 更新表格中的值
-                    value_item.setText(converted_value)
+                # 读取选择的转换表文件
+                with open(file_path, 'r', encoding='utf-8') as table_file:
+                    hex_table = table_file.readlines()
 
-            # Ensure lines ending with ']' have no trailing content
-            for i in range(len(converted_lines)):
-                if converted_lines[i].startswith('[') and ']' in converted_lines[i]:
-                    converted_lines[i] = converted_lines[i].split(']')[0] + ']'
+                # 创建转换字典
+                conversion_dict = {}
+                for line in hex_table:
+                    line = line.strip().split('\t')
+                    if len(line) == 2:
+                        conversion_dict[line[1]] = line[0]
 
-            # 获取输入GXT文件的名字
-            gxt_name = os.path.splitext(os.path.basename(self.gxt_path_entry.text()))[0]
+                # 使用转换表对文本进行转换
+                updated_lines = []
+                for line in converted_lines:
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        converted_value = ""
+                        for char in value:
+                            if ord(char) > 127:  # 非ASCII字符
+                                hex_value = f"{ord(char):04x}"
+                                converted_value += conversion_dict.get(hex_value, char)
+                            else:
+                                converted_value += char
+                        updated_lines.append(f"{key}={converted_value}")
+                    else:
+                        updated_lines.append(line)
 
-            # 保存转换后的文本到{name}_.txt文件中
-            output_txt_path = os.path.join(os.path.dirname(file_path), f"converted.txt")
-            with open(output_txt_path, 'w', encoding='utf-8') as output_file:
-                output_file.write('\n'.join(converted_lines))
+                # 将更新后的文本保存回TXT文件
+                with open(gxt_txt_path, 'w', encoding='utf-8') as output_file:
+                    output_file.writelines(updated_lines)
 
-            QMessageBox.information(self, "提示", f"文本转换完成并保存到 {output_txt_path}")
+                self.display_gxt_content_in_table('\n'.join(updated_lines))
+
+                QMessageBox.information(self, "提示", f"文本转换完成并保存到 {gxt_txt_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"转换过程中出现错误: {str(e)}")
+        else:
+            QMessageBox.warning(self, "警告", "未选择转换表文件！")
+
 
     def createOutputDir(self, path):
         try:
@@ -229,6 +239,7 @@ class GXTViewer(QtWidgets.QWidget):
 
     def open_gxt_path(self, file_path):
         if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
+            self.gxt_file_path = file_path  # Store the GXT file path
             outDirName = os.path.splitext(os.path.basename(file_path))[0]
             text_content = self.gxt_processing(file_path, outDirName)
             self.output_table.clearContents()
@@ -314,6 +325,7 @@ def main():
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".gxt"):
         gxt_path = sys.argv[1]
+        window.gxt_file_path = gxt_path  # Store the GXT file path
         window.open_gxt_path(gxt_path)
 
     app.exec_()
