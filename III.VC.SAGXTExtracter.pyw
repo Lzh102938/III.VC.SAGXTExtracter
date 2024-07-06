@@ -3,8 +3,11 @@ import errno
 import gta.gxt
 import ctypes
 from PyQt5 import QtWidgets, QtGui, QtCore
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QGroupBox, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QMainWindow
-from PyQt5.QtCore import QUrl, Qt
+from PyQt5.QtWidgets import (
+    QApplication, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog,
+    QMessageBox, QTableWidget, QTableWidgetItem, QLineEdit, QWidget
+)
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 import sys
 
@@ -23,81 +26,87 @@ class CustomTableWidgetItem(QTableWidgetItem):
 
     def paint(self, painter, option, index):
         painter.save()
-        # Draw black outline
         painter.setPen(QtGui.QPen(Qt.black, 2))
         painter.drawText(option.rect, Qt.AlignLeft, self.text())
-        # Draw white text
         painter.setPen(QtGui.QPen(Qt.white, 1))
         painter.drawText(option.rect, Qt.AlignLeft, self.text())
         painter.restore()
 
-class GXTViewer(QtWidgets.QWidget):
+class GXTViewer(QWidget):
     def __init__(self):
         super().__init__()
-        self.gxt_file_path = None  # Store GXT file path here
+        self.gxt_file_path = None
+        self.gxt_txt_path = None
+        self.parsed_content = ""  # 新增属性
         self.initUI()
 
     def initUI(self):
         self.setWindowIcon(QIcon('./favicon.ico'))
-        self.setWindowTitle("GXT文本查看器 - By：Lzh10_慕黑")
-        self.resize(960, 618)  # Set the initial window size to 960x618
+        self.setWindowTitle("GXT文本查看器 - By：Lzh10_慕黑 | GTAmod中文组")
+        self.resize(960, 618)
 
         font = QtGui.QFont("Microsoft YaHei UI", 10)
-        app = QtWidgets.QApplication.instance()
+        app = QApplication.instance()
         app.setFont(font)
 
-        layout = QtWidgets.QVBoxLayout()
-        
-        self.gxt_path_entry = QtWidgets.QLineEdit(self)
+        main_layout = QVBoxLayout()
 
-        # 添加文本框
-        layout.addWidget(self.gxt_path_entry)
-        
-        # Title label (Clickable for About)
+        control_layout = QVBoxLayout()
+
+        self.gxt_path_entry = QLineEdit(self)
+        control_layout.addWidget(self.gxt_path_entry)
+
         self.title_label = ClickableLabel("<h1>GXT文本查看器</h1>")
         self.title_label.setOpenExternalLinks(True)
         self.title_label.setToolTip("点击以显示「关于」")
-        self.title_label.clicked.connect(self.open_about_window)  # 连接到打开关于窗口的槽函数
-        layout.addWidget(self.title_label)
+        self.title_label.clicked.connect(self.open_about_window)
+        control_layout.addWidget(self.title_label)
 
-        # Create group box for buttons
         button_groupbox = QGroupBox("操作")
-        button_layout = QVBoxLayout()
+        button_layout = QHBoxLayout()
 
-        # Browse GXT Button
         self.browse_button = QPushButton("📄 浏览GXT", self)
         self.browse_button.clicked.connect(self.select_gxt_file)
-        self.browse_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.browse_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }") #边框粗细像素、圆角曲率、边框垂直距离
+        self.browse_button.setToolTip("选择并解析GXT")
         button_layout.addWidget(self.browse_button)
         
-        # Convert Button
         self.convert_button = QPushButton("🔄 码表转换", self)
         self.convert_button.clicked.connect(self.convert_using_table)
         self.convert_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.convert_button.setToolTip("将原密文二次解析")
         button_layout.addWidget(self.convert_button)
 
-        button_groupbox.setLayout(button_layout)
-        layout.addWidget(button_groupbox)
+        self.save_button = QPushButton("💾 保存文本", self)
+        self.save_button.clicked.connect(self.save_generated_txt)
+        self.save_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.save_button.setToolTip("另存为 TXT")
+        button_layout.addWidget(self.save_button)
 
-        # Output Table Widget
+        self.clear_button = QPushButton("🗑️ 清空表格", self)
+        self.clear_button.clicked.connect(self.clear_table)
+        self.clear_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.clear_button.setToolTip("清除历史表格内容")
+        button_layout.addWidget(self.clear_button)
+
+        button_groupbox.setLayout(button_layout)
+        control_layout.addWidget(button_groupbox)
+
+        main_layout.addLayout(control_layout)
+
         self.output_table = QTableWidget(self)
         self.output_table.setColumnCount(2)
-        self.output_table.setHorizontalHeaderLabels(["Key", "Value"])
+        self.output_table.setHorizontalHeaderLabels(["键值", "内容"])
         self.output_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.output_table)
+        main_layout.addWidget(self.output_table)
 
-        # Set layout
-        self.setLayout(layout)
-        
-        # Enable drag and drop
+        self.setLayout(main_layout)
         self.setAcceptDrops(True)
 
     def convert_using_table(self):
-        # 获取转换表文件路径
         file_path, _ = QFileDialog.getOpenFileName(self, "选择转换表文件", "", "文本文件 (*.txt)")
         if file_path:
             try:
-                # 获取GXT文件生成的TXT文件路径
                 gxt_file_path = self.gxt_file_path or self.gxt_path_entry.text()
                 if not gxt_file_path:
                     gxt_file_path, _ = QFileDialog.getOpenFileName(self, "选择GXT文件", "", "GXT文件 (*.gxt)")
@@ -106,38 +115,30 @@ class GXTViewer(QtWidgets.QWidget):
 
                 gxt_txt_path = os.path.splitext(gxt_file_path)[0] + '.txt'
 
-                # 重新读取GXT目录下的同名TXT文件作为文本源
                 with open(gxt_txt_path, 'r', encoding='utf-8') as gxt_txt_file:
                     converted_lines = gxt_txt_file.readlines()
 
-                # 读取选择的转换表文件
                 with open(file_path, 'r', encoding='utf-8') as table_file:
                     hex_table = table_file.readlines()
 
-                # 创建转换字典
                 conversion_dict = {}
                 for line in hex_table:
                     line = line.strip().split('\t')
                     if len(line) == 2:
                         conversion_dict[line[1]] = line[0]
 
-                # 使用转换表对文本进行转换
                 updated_lines = []
                 for line in converted_lines:
                     if '=' in line:
                         key, value = line.split('=', 1)
-                        converted_value = ""
-                        for char in value:
-                            if ord(char) > 127:  # 非ASCII字符
-                                hex_value = f"{ord(char):04x}"
-                                converted_value += conversion_dict.get(hex_value, char)
-                            else:
-                                converted_value += char
+                        converted_value = "".join(
+                            conversion_dict.get(f"{ord(char):04x}", char) if ord(char) > 127 else char 
+                            for char in value
+                        )
                         updated_lines.append(f"{key}={converted_value}")
                     else:
                         updated_lines.append(line)
 
-                # 将更新后的文本保存回TXT文件
                 with open(gxt_txt_path, 'w', encoding='utf-8') as output_file:
                     output_file.writelines(updated_lines)
 
@@ -149,65 +150,56 @@ class GXTViewer(QtWidgets.QWidget):
         else:
             QMessageBox.warning(self, "警告", "未选择转换表文件！")
 
-
-    def createOutputDir(self, path):
+    @staticmethod
+    def createOutputDir(path: str):
         try:
             os.makedirs(path)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
 
-    def readOutTable(self, gxt, reader, name, outDirName):
+    @staticmethod
+    def readOutTable(gxt, reader, name: str, outDirName: str):
         output_file_path = os.path.join(outDirName, name + '.txt')
-
         with open(output_file_path, 'w', encoding='utf-8') as f:
             f.write(f'[{name}]\n')
-
             for text in reader.parseTKeyTDat(gxt):
                 f.write(text[0] + '=' + text[1] + '\n')
 
-    def gxt_processing(self, file_path, outDirName):
+    def gxt_processing(self, file_path: str, outDirName: str):
         gxt_name = os.path.splitext(os.path.basename(file_path))[0]
-
         try:
             with open(file_path, 'rb') as gxt:
                 gxtversion = gta.gxt.getVersion(gxt)
-
                 if not gxtversion:
                     QMessageBox.critical(self, "错误", "未知GXT版本！")
                     return []
 
                 QMessageBox.information(self, "提示", f"成功识别GXT版本：{gxtversion}")
-
                 gxtReader = gta.gxt.getReader(gxtversion)
 
                 if gxtversion == 'iii':
                     text_content = gxtReader.parseTKeyTDat(gxt)
-                    output_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
-                    with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                    self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
+                    with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
                         for text in text_content:
                             output_file.write(f"{text[0]}={text[1]}\n")
                 else:
                     gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
                     self.createOutputDir(gxt_dir)
+                    Tables = gxtReader.parseTables(gxt) if gxtReader.hasTables() else []
 
-                    Tables = []
-                    if gxtReader.hasTables():
-                        Tables = gxtReader.parseTables(gxt)
-
-                    for t in Tables:
-                        table_name = t[0]
+                    for table_name, _ in Tables:
                         self.readOutTable(gxt, gxtReader, table_name, gxt_dir)
 
                     text_content = []
-                    for t in Tables:
-                        table_name = t[0]
+                    for table_name, _ in Tables:
                         table_file_path = os.path.join(gxt_dir, table_name + '.txt')
                         with open(table_file_path, 'r', encoding='utf-8') as table_file:
                             text_content.append(table_file.read())
 
-                    output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
-                    with open(output_txt_path, 'w', encoding='utf-8') as output_file:
+                    self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{outDirName}.txt")
+                    with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
                         output_file.write('\n\n'.join(text_content))
 
                 return text_content
@@ -215,7 +207,8 @@ class GXTViewer(QtWidgets.QWidget):
             QMessageBox.critical(self, "错误", f"打开GXT文件时出错: {str(e)}")
             return []
 
-    def display_gxt_content_in_table(self, content):
+    def display_gxt_content_in_table(self, content: str):
+        self.parsed_content = content  # 将内容存储在属性中
         self.output_table.setRowCount(0)
         for line in content.splitlines():
             if line.startswith('[') and line.endswith(']'):
@@ -228,23 +221,21 @@ class GXTViewer(QtWidgets.QWidget):
                 row_position = self.output_table.rowCount()
                 self.output_table.insertRow(row_position)
                 key_item = CustomTableWidgetItem(key.strip())
+                key_item.setFlags(QtCore.Qt.ItemIsEnabled)
                 value_item = CustomTableWidgetItem(value.strip())
-                
-                # Set font for value to Microsoft YaHei UI Bold
+                value_item.setFlags(QtCore.Qt.ItemIsEnabled)
                 font = QtGui.QFont("Microsoft YaHei", 13, QtGui.QFont.Bold)
                 value_item.setFont(font)
-                
                 self.output_table.setItem(row_position, 0, key_item)
                 self.output_table.setItem(row_position, 1, value_item)
 
-    def open_gxt_path(self, file_path):
+    def open_gxt_path(self, file_path: str):
         if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
-            self.gxt_file_path = file_path  # Store the GXT file path
+            self.gxt_file_path = file_path
             outDirName = os.path.splitext(os.path.basename(file_path))[0]
             text_content = self.gxt_processing(file_path, outDirName)
             self.output_table.clearContents()
-
-            output_txt_path = os.path.join(os.path.dirname(file_path), outDirName + '.txt')
+            output_txt_path = os.path.join(os.path.dirname(file_path), f"{outDirName}.txt")
             if os.path.isfile(output_txt_path):
                 with open(output_txt_path, 'r', encoding='utf-8') as output_file:
                     self.display_gxt_content_in_table(output_file.read())
@@ -262,15 +253,35 @@ class GXTViewer(QtWidgets.QWidget):
                 self.open_gxt_path(file_path)
         except Exception as e:
             print("Error:", e)
-        
+
     def open_gxt_from_input(self):
         file_path = self.gxt_path_entry.text()
         self.open_gxt_path(file_path)
 
+    def save_generated_txt(self):
+      if not self.parsed_content:
+            QMessageBox.warning(self, "警告", "请先选择并解析GXT文件！")
+            return
+
+      txt_file_path = QFileDialog.getSaveFileName(self, "保存为TXT文件", os.path.splitext(self.gxt_txt_path)[0], "文本文件 (*.txt)")[0]
+      if not txt_file_path:
+           return
+
+      try:
+           with open(txt_file_path, 'w', encoding='utf-8') as target_file:
+             target_file.write(self.parsed_content)
+           QMessageBox.information(self, "提示", f"文件已保存到 {txt_file_path}")
+      except Exception as e:
+          QMessageBox.critical(self, "错误", f"保存文件时出错: {str(e)}")
+
+    def clear_table(self):
+        self.output_table.clearContents()
+        self.output_table.setRowCount(0)
+
     def open_about_window(self):
         about_text = """
-        版本号：Release Version 1.2.4A<br/>
-        更新日期：2024年6月22日<br/><br/>
+        版本号：Release Version 1.2.5<br/>
+        更新日期：2024年7月6日<br/><br/>
 
         ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––<br/><br/>
 
@@ -290,6 +301,7 @@ class GXTViewer(QtWidgets.QWidget):
 
         更新日志：<br/>        
         ☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆<br/>
+        V1.2.5 优化GUI，为按钮显示注释；并添加另存为文本和清除表格功能</br>
         V1.2.4A 添加针对GTAIV的GXT解析<br/>
         V1.2.4 添加针对GTAIV的GXT解析（不包括中文）<br/>
         V1.2.3 优化GUI，按钮变为圆角设计，添加文件拖入窗口输入操作<br/>
@@ -299,11 +311,10 @@ class GXTViewer(QtWidgets.QWidget):
         V1.1   添加了TABLE分文本功能<br/>
         ☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆<br/>
         """
-
-        about_dialog = QtWidgets.QMessageBox(self)
+        about_dialog = QMessageBox(self)
         about_dialog.setWindowTitle("关于")
         about_dialog.setText(about_text)
-        about_dialog.setIcon(QtWidgets.QMessageBox.Information)
+        about_dialog.setIcon(QMessageBox.Information)
         about_dialog.exec_()
 
     def dragEnterEvent(self, event):
@@ -318,14 +329,14 @@ class GXTViewer(QtWidgets.QWidget):
         self.open_gxt_path(gxt_path)
 
 def main():
-    app = QtWidgets.QApplication([])
+    app = QApplication([])
 
     window = GXTViewer()
     window.show()
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".gxt"):
         gxt_path = sys.argv[1]
-        window.gxt_file_path = gxt_path  # Store the GXT file path
+        window.gxt_file_path = gxt_path
         window.open_gxt_path(gxt_path)
 
     app.exec_()
