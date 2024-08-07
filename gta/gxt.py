@@ -12,23 +12,7 @@ class III:
         return []  # III version doesn't have TABLEs
 
     def parseTKeyTDat(self, stream):
-        size = findBlock(stream, 'TKEY')
-
-        TKey = []
-        for i in range(int(size / 12)):  # TKEY entry size - 12
-            TKey.append(struct.unpack('I8s', stream.read(12)))
-
-        datSize = findBlock(stream, 'TDAT')
-        TDat = stream.read(datSize)
-
-        Entries = []
-
-        for entry in TKey:
-            key = entry[1]
-            value = TDat[entry[0]:].decode('utf-16').split('\x00', 1)[0]
-            Entries.append((key.split(b'\x00')[0].decode(), value))  # TODO: charmap
-
-        return Entries
+        return parseTKeyTDat_common(stream, entry_size=12, key_format='I8s', value_encoding='utf-16')
 
 class VC:
     def hasTables(self):
@@ -38,23 +22,7 @@ class VC:
         return _parseTables(stream)
 
     def parseTKeyTDat(self, stream):
-        size = findBlock(stream, 'TKEY')
-
-        TKey = []
-        for i in range(int(size / 12)):  # TKEY entry size - 12
-            TKey.append(struct.unpack('I8s', stream.read(12)))
-
-        datSize = findBlock(stream, 'TDAT')
-        TDat = stream.read(datSize)
-
-        Entries = []
-
-        for entry in TKey:
-            key = entry[1]
-            value = TDat[entry[0]:].decode('utf-16').split('\x00', 1)[0]
-            Entries.append((key.split(b'\x00')[0].decode(), value))  # TODO: charmap
-
-        return Entries
+        return parseTKeyTDat_common(stream, entry_size=12, key_format='I8s', value_encoding='utf-16')
 
 class SA:
     def __init__(self):
@@ -67,27 +35,7 @@ class SA:
         return _parseTables(stream)
 
     def parseTKeyTDat(self, stream):
-        size = findBlock(stream, 'TKEY')
-
-        TKey = []
-        for i in range(int(size / 8)):  # TKEY entry size - 8
-            TKey.append(struct.unpack('II', stream.read(8)))
-
-        datSize = findBlock(stream, 'TDAT')
-        TDat = stream.read(datSize)
-
-        Entries = []
-
-        for entry in TKey:
-            key = f'{entry[1]:08X}'
-            value = TDat[entry[0]:].decode('utf-8', errors='ignore')  # Try decoding with UTF-8 first
-            if not value:
-                value = TDat[entry[0]:].decode('cp1252', errors='ignore')  # If UTF-8 fails, try cp1252
-            value = value.split('\x00', 1)[0]
-
-            Entries.append((key, value))  # TODO: charmap
-
-        return Entries
+        return parseTKeyTDat_common(stream, entry_size=8, key_format='II', value_encoding='utf-8')
 
 class IV:
     def __init__(self):
@@ -101,7 +49,6 @@ class IV:
 
     def parseTKeyTDat(self, stream):
         size = findBlock(stream, 'TKEY')
-
         TKey = []
         for i in range(int(size / 8)):  # TKEY entry size - 8
             TKey.append(struct.unpack('II', stream.read(8)))
@@ -118,6 +65,8 @@ class IV:
             dat_str = str()
             
             while True:
+                if entry_bytes_start_offset + entry_bytes_cur_offset + 2 > len(TDat):
+                    break
                 unicode_char, = struct.unpack('H', TDat[entry_bytes_start_offset + entry_bytes_cur_offset:entry_bytes_start_offset + entry_bytes_cur_offset + 2])
                 entry_bytes_cur_offset += 2
                 if unicode_char != 0:
@@ -125,10 +74,30 @@ class IV:
                 else:
                     break
             
-            # TODO: 过滤/替换不支持的原版字符
             Entries.append((f'{crc:08X}', dat_str))
 
         return Entries
+
+def parseTKeyTDat_common(stream, entry_size, key_format, value_encoding):
+    size = findBlock(stream, 'TKEY')
+    TKey = []
+    for i in range(int(size / entry_size)):  # Entry size depends on the version
+        TKey.append(struct.unpack(key_format, stream.read(entry_size)))
+
+    datSize = findBlock(stream, 'TDAT')
+    TDat = stream.read(datSize)
+
+    Entries = []
+
+    for entry in TKey:
+        key = entry[1] if isinstance(entry[1], bytes) else f'{entry[1]:08X}'
+        try:
+            value = TDat[entry[0]:].decode(value_encoding, errors='ignore').split('\x00', 1)[0]
+        except UnicodeDecodeError:
+            value = TDat[entry[0]:].decode('cp1252', errors='ignore').split('\x00', 1)[0]
+        Entries.append((key.split(b'\x00')[0].decode() if isinstance(key, bytes) else key, value))
+
+    return Entries
 
 def findBlock(stream, block):
     while stream.peek(4)[:4] != block.encode():
@@ -144,34 +113,34 @@ def getVersion(stream):
     # IV (Ensure this check is above SA checks to prevent incorrect matching)
     version, bits_per_char = struct.unpack('HH', bytes[:4])
     if version == 4 and bits_per_char == 16:
-        return 'iv'
+        return 'IV'
 
     # SA
     word1, word2 = struct.unpack('HH', bytes[:4])
     if word1 == 4 and bytes[4:] == b'TABL':
         if word2 == 8:
-            return 'sa'
+            return 'SA'
         if word2 == 16:
-            return 'sa-mobile'
+            return 'SA-Mobile'
 
     if bytes[:4] == b'TABL':
-        return 'vc'
+        return 'VC'
 
     if bytes[:4] == b'TKEY':
-        return 'iii'
+        return 'III'
 
     return None
 
 def getReader(version):
-    if version == 'vc':
+    if version == 'VC':
         return VC()
-    if version == 'sa':
+    if version == 'SA':
         return SA()
-    if version == 'sa-mobile':
+    if version == 'SA-Mobile':
         return SA()
-    if version == 'iii':
+    if version == 'III':
         return III()
-    if version == 'iv':
+    if version == 'IV':
         return IV()
     return None
 
