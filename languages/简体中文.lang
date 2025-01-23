@@ -1,0 +1,42 @@
+# Main Window
+window_title=GXT文本查看器 - By：Lzh10_慕黑 | GTAmod中文组
+browse_button_text=📄 浏览GXT
+convert_button_text=🔄 码表转换
+save_button_text=💾 保存文本
+clear_button_text=🗑️ 清空表格
+table_column_key=键值
+table_column_value=内容
+change_the_row=操作
+title_version=GXT文本查看器 - By：Lzh10_慕黑 | GTAmod中文组 - GXT版本：
+
+# Tooltips
+tooltip_browse_button=选择并解析GXT
+tooltip_convert_button=将原密文二次解析
+tooltip_save_button=另存为 TXT
+tooltip_clear_button=清除历史表格内容
+select_gxt_file=选择GXT文件
+select_conversion_table=选择码表文件
+
+# Messages
+error_unknown_gxt_version=未知GXT版本！
+success_recognized_gxt_version=成功识别GXT版本：{version}
+error_opening_gxt_file=打开GXT文件时出错: {error}
+error_invalid_gxt_file_path=无效的GXT文件路径！
+warning_select_and_parse_gxt_first=请先选择并解析GXT文件！
+error_saving_file=保存文件时出错: {error}
+info_file_saved=文件已保存到 {path}
+warning_no_conversion_table_selected=未选择转换表文件！
+info_conversion_complete=文本转换完成并保存到 {gxt_txt_path}
+
+# Write
+save_gxt_button_text=📥保存GXT
+tooltip_save_gxt_button=保存编辑后的GXT文件
+error_builder_exe_not_found=构建工具 {exe} 未找到
+error_running_builder=运行构建工具时出错: {error}
+info_gxt_saved=GXT文件已保存到 {path}
+error_gxt_not_generated=生成的GXT文件未找到
+search_placeholder=键入文本以检索…
+
+# About Window
+about_window_title=关于
+about_text_html=<html>\n<body>\n<p>版本号：Release Version 2.0.0<br/>\n更新日期：2025年1月23日</p>\n\n<hr/>\n\n<p>本软件由「Lzh10_慕黑」创作，隶属「GTAmod中文组」<br/>\n借用GitHub上开源GXT解析代码</p>\n\n<p>温馨提示：仅支持III、VC、SA、IV版本GXT解析</p>\n\n<p>此工具完全免费且开源，若通过付费渠道获取均为盗版！<br/>\n若您是盗版受害者，联系QQ：<a href="tencent://message/?uin=235810290&Site=&Menu=yes" target="_blank" title="点击添加好友">235810290</a></p>\n\n<p>免责声明：使用本软件导致的版权问题本组概不负责！</p>\n\n<p>开源&检测更新：<a href="https://github.com/Lzh102938/III.VC.SAGXTExtracter">https://github.com/Lzh102938/III.VC.SAGXTExtracter</a></p> \n\n<hr/>\n\n<p>更新日志：<br/>        \n☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆</p></p>\n<font color="red"><b>注意：由于添加了一些功能，处理文本时窗口可能未响应，请耐心等待。</b></font>\n\n<table>\n    <tr>\n        <td><b>V2.0.0</b></td>\n        <td>\n            <ul>\n                <li>添加编辑功能，可在文本框内直接编辑文本并且「保存为GXT」</li>\n                <li>添加分表查找功能，可通过下拉栏定位所选表的「段落」</li>\n                <li>添加检索功能，可键入文本以检索对应内容</li>\n                <li>编辑功能可自由增减行数</li>\n                <li>仅保留简体中文语言，用户可自行添加语言</li>\n                <li>添加横向滚动条，防止文本显示不完全</li>\n                <li>关于窗口添加滚动条，防止文本超出屏幕限制</li>\n                <li>优化表格性能，取消粗体显示</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td colspan="2">\n            <p>以下是1.0版本的更新日志</p>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.6B</b></td>\n        <td>\n            <ul>\n                <li>移除选择文件后弹窗提示版本，改为窗口标题显示版本</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.6A</b></td>\n        <td>\n            <ul>\n                <li>支持多语言热重载</li>\n                <li>修改说明页弹窗框架</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.6</b></td>\n        <td>\n            <ul>\n                <li>修正解析逻辑，修复遇到UTF-16-LE时无法解码字节的错误</li>\n                <li>修正说明页显示错误，换行错误与下一行相连</li>\n                <li>简化了冗杂代码，提取共通逻辑到辅助函数中</li>\n                <li>说明页重写，更新日志更美观</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.5</b></td>\n        <td>\n            <ul>\n                <li>优化GUI，为按钮显示注释</li>\n                <li>添加另存为文本和清除表格功能</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.4A</b></td>\n        <td>\n            <ul>\n                <li>添加针对GTAIV的GXT解析</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.4</b></td>\n        <td>\n            <ul>\n                <li>添加针对GTAIV的GXT解析（不包括中文）</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.3</b></td>\n        <td>\n            <ul>\n                <li>优化GUI，按钮变为圆角设计，添加文件拖入窗口输入操作</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.2</b></td>\n        <td>\n            <ul>\n                <li>添加功能，实现提取文本进行码表转换功能</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2.1</b></td>\n        <td>\n            <ul>\n                <li>重构GUI，可自由改变窗口大小分辨率</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.2</b></td>\n        <td>\n            <ul>\n                <li>修复了命令行输入导致输入路径错误问题，支援GTA3</li>\n            </ul>\n        </td>\n    </tr>\n    <tr>\n        <td><b>V1.1</b></td>\n        <td>\n            <ul>\n                <li>添加了TABLE分文本功能</li>\n            </ul>\n        </td>\n    </tr>\n</table>\n\n<p>GTAmod中文组</p>\n<p>2025年1月23日</p>\n\n<hr/>\n\n<p>☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆</p>\n</body>\n</html>

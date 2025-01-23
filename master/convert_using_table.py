@@ -2,17 +2,14 @@ import os
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 def convert_using_table(viewer):
-    """
-    Opens a dialog to select a conversion table and processes the GXT file using this table.
-    """
-    file_path, _ = QFileDialog.getOpenFileName(viewer, "选择转换表文件", "", "文本文件 (*.txt)")
+    file_path, _ = QFileDialog.getOpenFileName(viewer, viewer.tr("select_conversion_table"), "", "文本文件 (*.txt)")
     if file_path:
         try:
             gxt_file_path = viewer.gxt_file_path or viewer.gxt_path_entry.text()
             if not gxt_file_path:
-                gxt_file_path, _ = QFileDialog.getOpenFileName(viewer, "选择GXT文件", "", "GXT文件 (*.gxt)")
+                gxt_file_path, _ = QFileDialog.getOpenFileName(viewer, viewer.tr("select_gxt_file"), "", "GXT文件 (*.gxt)")
                 if not gxt_file_path:
-                    raise FileNotFoundError("GXT文件路径未提供或选择")
+                    raise FileNotFoundError(viewer.tr("error_no_gxt_path_provided"))
 
             gxt_txt_path = os.path.splitext(gxt_file_path)[0] + '.txt'
 
@@ -45,8 +42,8 @@ def convert_using_table(viewer):
 
             viewer.display_gxt_content_in_table(''.join(updated_lines))
 
-            QMessageBox.information(viewer, "提示", f"文本转换完成并保存到 {gxt_txt_path}")
+            QMessageBox.information(viewer, viewer.tr("提示"), viewer.tr("info_conversion_complete", gxt_txt_path=gxt_txt_path))
         except Exception as e:
-            QMessageBox.critical(viewer, "错误", f"转换过程中出现错误: {str(e)}")
+            QMessageBox.critical(viewer, viewer.tr("错误"), viewer.tr("error_conversion", error=str(e)))
     else:
-        QMessageBox.warning(viewer, "警告", "未选择转换表文件！")
+        QMessageBox.warning(viewer, viewer.tr("警告"), viewer.tr("warning_no_conversion_table_selected"))
