@@ -1,5 +1,5 @@
 import os
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QApplication
 
 def convert_using_table(viewer):
     file_path, _ = QFileDialog.getOpenFileName(viewer, viewer.tr("select_conversion_table"), "", "文本文件 (*.txt)")
@@ -13,29 +13,31 @@ def convert_using_table(viewer):
 
             gxt_txt_path = os.path.splitext(gxt_file_path)[0] + '.txt'
 
-            with open(gxt_txt_path, 'r', encoding='utf-8') as gxt_txt_file:
-                converted_lines = gxt_txt_file.readlines()
+            # 优化：逐行处理，避免一次性读入大文件
+            def conversion_dict_gen(table_file):
+                for line in table_file:
+                    line = line.strip().split('\t')
+                    if len(line) == 2:
+                        yield line[1], line[0]
 
             with open(file_path, 'r', encoding='utf-8') as table_file:
-                hex_table = table_file.readlines()
-
-            conversion_dict = {}
-            for line in hex_table:
-                line = line.strip().split('\t')
-                if len(line) == 2:
-                    conversion_dict[line[1]] = line[0]
+                conversion_dict = dict(conversion_dict_gen(table_file))
 
             updated_lines = []
-            for line in converted_lines:
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    converted_value = "".join(
-                        conversion_dict.get(f"{ord(char):04x}", char) if ord(char) > 127 else char 
-                        for char in value
-                    )
-                    updated_lines.append(f"{key}={converted_value}")
-                else:
-                    updated_lines.append(line)
+            with open(gxt_txt_path, 'r', encoding='utf-8') as gxt_txt_file:
+                for idx, line in enumerate(gxt_txt_file):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        converted_value = "".join(
+                            conversion_dict.get(f"{ord(char):04x}", char) if ord(char) > 127 else char
+                            for char in value
+                        )
+                        updated_lines.append(f"{key}={converted_value}")
+                    else:
+                        updated_lines.append(line)
+                    # 每处理1000行刷新一次事件循环，提升响应
+                    if idx % 1000 == 0:
+                        QApplication.processEvents()
 
             with open(gxt_txt_path, 'w', encoding='utf-8') as output_file:
                 output_file.writelines(updated_lines)

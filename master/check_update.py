@@ -1,6 +1,6 @@
 # master/check_update.py
-from PyQt5.QtCore import QObject, pyqtSignal, QUrl
-from PyQt5.QtNetwork import QNetworkRequest, QNetworkReply, QNetworkAccessManager
+from PyQt6.QtCore import QObject, pyqtSignal, QUrl
+from PyQt6.QtNetwork import QNetworkRequest, QNetworkAccessManager, QNetworkReply
 import json
 import re
 
@@ -21,43 +21,33 @@ class UpdateChecker(QObject):
         self.manager.get(request)
 
     def handle_response(self, reply):
-        """处理网络响应，获取 HTTP 状态码并根据情况发射信号"""
         try:
-            # 1. 获取网络层错误枚举
             err = reply.error()
-            # 2. 获取 HTTP 状态码并转换为 int（可能为 None）
-            status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute)
+            status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
             status = int(status) if status is not None else None
 
-            print(f"收到响应，HTTP 状态码：{status}，网络错误枚举：{err}")
-
-            # 3. 网络错误，优先上报
-            if err != QNetworkReply.NoError:
+            # 优先处理网络错误
+            if err != QNetworkReply.NetworkError.NoError:
                 self.error_occurred.emit(reply.errorString())
                 return
 
-            # 4. HTTP 状态码非 200 时上报
             if status != 200:
                 self.error_occurred.emit(f"HTTP 错误，状态码：{status}")
                 return
 
-            # 5. 读取并解析 JSON
             raw = reply.readAll().data().decode('utf-8')
             info = json.loads(raw)
             remote_version = info.get('version')
             release_url    = info.get('release_url')
             message        = info.get('message', '')
 
-            # 6. 对比版本，若有新版本则发射更新信号
             if remote_version and release_url and self.is_newer_version(remote_version):
                 self.update_available.emit(remote_version, release_url, message)
 
         except Exception as e:
-            # 捕获一切异常，避免未处理错误闪退
             self.error_occurred.emit(f"更新检查内部异常：{e}")
 
         finally:
-            # 确保 reply 对象正确销毁
             reply.deleteLater()
 
     def is_newer_version(self, remote_version):

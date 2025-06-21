@@ -2,25 +2,53 @@ import os
 import errno
 import gta.gxt
 import ctypes
-from PyQt5 import QtWidgets, QtGui, QtCore
-from PyQt5.QtWidgets import (
+from PyQt6 import QtWidgets, QtGui, QtCore
+from PyQt6.QtWidgets import (
     QApplication, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog,
-    QMessageBox, QTableWidget, QTableWidgetItem, QLineEdit, QWidget, QComboBox, QAbstractItemView, QDialog, QHeaderView, QSizePolicy
+    QMessageBox, QTableWidget, QTableWidgetItem, QLineEdit, QWidget, QComboBox, QAbstractItemView, QDialog, QHeaderView, QSizePolicy,
+    QStyledItemDelegate, QMenu
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QRegExpValidator, QFont
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QFont, QTextDocument, QColor, QAction
+
+# 兼容PyQt6的SectionResizeMode写法
+from PyQt6.QtWidgets import QHeaderView
+SectionResizeMode = QHeaderView.ResizeMode
+
 import sys
 import shutil
 import subprocess
 import re
 import json
-from PyQt5.QtNetwork import QNetworkRequest, QNetworkAccessManager
+from PyQt6.QtNetwork import QNetworkRequest, QNetworkAccessManager
 
 from master.about_window import open_about_window
 from master.convert_using_table import convert_using_table
 from master.check_update import UpdateChecker
+from debug.debug_menu import DebugMenu
 
-APP_VERSION = "2.1.0"
+def show_copyable_error(parent, title, text):
+    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QPushButton
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(title)
+    dlg.setMinimumWidth(520)
+    layout = QVBoxLayout(dlg)
+    label = QLabel(title)
+    label.setStyleSheet("font-weight:bold;font-size:15px;")
+    layout.addWidget(label)
+    edit = QTextEdit()
+    edit.setReadOnly(False)  # 可编辑
+    edit.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+    edit.setText(text)
+    edit.setStyleSheet("font-family: Consolas, 'Courier New', monospace; font-size: 13px;")
+    layout.addWidget(edit)
+    btn = QPushButton("关闭")
+    btn.clicked.connect(dlg.accept)
+    layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+    dlg.setModal(True)
+    dlg.exec()
+
+APP_VERSION = "2.2.0"
 myappid = "III.VC.SAGXTExtracter"
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
@@ -33,7 +61,7 @@ class ClickableLabel(QLabel):
 class CustomTableWidgetItem(QTableWidgetItem):
     def __init__(self, text=""):
         super().__init__(text)
-        self.setFlags(self.flags() | Qt.ItemIsEditable)  # 设置为可编辑
+        self.setFlags(self.flags() | Qt.ItemFlag.ItemIsEditable)  # 修正命名空间
 
 class GXTViewer(QWidget):
     def __init__(self):
@@ -42,8 +70,12 @@ class GXTViewer(QWidget):
         self.gxt_txt_path = None
         self.parsed_content = ""
         self.translations = {}
+        self._row_cache = None  # 新增：缓存表格行数据
+        self.debug_menu = DebugMenu(self)
+        self._table_hover_filter = None  # 防止未定义
         self.load_language_file()
         self.initUI()
+        self.installEventFilter(self)  # 用于全局快捷键
 
     def load_language_file(self, lang_file_path='languages/简体中文.lang'):
         """Load translations from a language file, using \n as a newline delimiter for multiline content."""
@@ -82,7 +114,8 @@ class GXTViewer(QWidget):
 
         font = QtGui.QFont("Microsoft YaHei UI", 10)
         app = QApplication.instance()
-        app.setFont(font)
+        if app is not None:
+            app.setFont(font)  # 修正 setFont 用法
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(15, 10, 15, 10)  # 减少边距
@@ -98,7 +131,8 @@ class GXTViewer(QWidget):
         control_layout.addWidget(self.language_selector)
 
         self.gxt_path_entry = QLineEdit(self)
-        self.gxt_path_entry.setVisible(False)  # Hides the QLineEdit without affecting its functionality
+        if self.gxt_path_entry is not None:
+            self.gxt_path_entry.setVisible(False)  # Hides the QLineEdit without affecting its functionality
         #control_layout.addWidget(self.gxt_path_entry)
 
         self.title_label = ClickableLabel("<h1>" + self.tr("window_title") + "</h1>")
@@ -149,15 +183,86 @@ class GXTViewer(QWidget):
 
         main_layout.addLayout(control_layout)
 
+        # 下拉栏统一美工样式
+        combo_style = """
+            QComboBox {
+                font-size: 13px;
+                min-height: 24px;
+                min-width: 200px;
+                padding: 6px 32px 6px 12px;
+                border: 2px solid #90CDF4;
+                border-radius: 10px;
+                background: #F7FAFC;
+                color: #2B6CB0;
+                selection-background-color: #BEE3F8;
+                selection-color: #1A365D;
+            }
+            QComboBox:focus {
+                border: 2px solid #4299E1;
+                background: #E3F2FD;
+            }
+            QComboBox::drop-down {
+                width: 32px;
+                border-left: 1px solid #BEE3F8;
+                background: #E3F2FD;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                border-top-right-radius: 10px;
+                border-bottom-right-radius: 10px;
+            }
+            QComboBox::down-arrow {
+                image: url(:/qt-project.org/styles/commonstyle/images/arrowdown-16.png);
+                width: 18px;
+                height: 18px;
+            }
+            QComboBox QAbstractItemView {
+                font-size: 13px;
+                background: #FFFFFF;
+                selection-background-color: #BEE3F8;
+                selection-color: #1A365D;
+                border: 1px solid #90CDF4;
+                outline: none;
+                padding: 4px 0;
+                border-radius: 10px; /* 统一圆角 */
+            }
+        """
+
         self.section_combobox = QComboBox(self)
         self.section_combobox.currentTextChanged.connect(self.highlight_selected_section)
+        self.section_combobox.setStyleSheet(combo_style)
+        self.section_combobox.setMinimumWidth(220)
+        self.section_combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         main_layout.addWidget(self.section_combobox)
+
+        self.language_selector.setStyleSheet(combo_style)
+        self.language_selector.setMinimumWidth(220)
+        self.language_selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        # ...existing code...
 
         self.output_table = QTableWidget(self)
         self.output_table.setColumnCount(3)
         self.output_table.setHorizontalHeaderLabels([self.tr("table_column_key"), self.tr("table_column_value"), self.tr("change_the_row")])
-        self.output_table.setEditTriggers(QAbstractItemView.DoubleClicked)
-        self.output_table.verticalHeader().setVisible(False)
+        # 修改为PyQt6的EditTrigger
+        self.output_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self.output_table.verticalHeader().setVisible(True)  # 显示行号
+        vh = self.output_table.verticalHeader()
+        if vh is not None:
+            vh.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # 行号右对齐垂直居中
+            vh.setSectionResizeMode(SectionResizeMode.Fixed)
+            vh.setDefaultSectionSize(32)  # 行高
+            vh.setMinimumWidth(32)        # 行号宽度更紧凑
+            vh.setMaximumWidth(40)        # 限制最大宽度
+            vh.setStyleSheet("""
+                QHeaderView::section {
+                    background: #F7FAFC;
+                    color: #888;
+                    font: 12px 'Consolas', 'Menlo', 'Monaco', 'Microsoft YaHei UI';
+                    border: none;
+                    padding-right: 6px;
+                    padding-left: 0px;
+                    border-radius: 0px; /* 去除圆角 */
+                }
+            """)
         self.output_table.setShowGrid(False)
         self.output_table.setColumnWidth(0, 150)  # 固定键列宽度
         self.output_table.setColumnWidth(2, 100)  # 操作列宽度
@@ -165,13 +270,13 @@ class GXTViewer(QWidget):
 
         # 表格尺寸策略
         self.output_table.setSizePolicy(
-            QSizePolicy.Expanding, 
-            QSizePolicy.Expanding
+            QSizePolicy.Policy.Expanding, 
+            QSizePolicy.Policy.Expanding
         )
     
         # 滚动性能优化（修复版本）
-        self.output_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.output_table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)  # 平滑滚动
+        self.output_table.horizontalHeader().setSectionResizeMode(1, SectionResizeMode.Stretch)
+        self.output_table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)  # 平滑滚动
         self.output_table.setAlternatingRowColors(True)  # 交替行颜色提升可读性
         self.output_table.verticalHeader().setDefaultSectionSize(32)  # 原为24
         self.output_table.setMinimumHeight(300)
@@ -187,9 +292,9 @@ class GXTViewer(QWidget):
         header = self.output_table.horizontalHeader()
 
         # 设置列模式：第一列固定，第二列自适应，第三列固定
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)  # 第一列：固定宽度
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)  # 第二列：自适应
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.Fixed)  # 第三列：固定宽度
+        header.setSectionResizeMode(0, SectionResizeMode.Fixed)  # 第一列：固定宽度
+        header.setSectionResizeMode(1, SectionResizeMode.Stretch)  # 第二列：自适应
+        header.setSectionResizeMode(2, SectionResizeMode.Fixed)  # 第三列：固定宽度
 
         # 设置固定宽度
         self.output_table.setColumnWidth(0, 100)  # 第一列宽度固定，适合8个字符
@@ -228,8 +333,8 @@ class GXTViewer(QWidget):
         self.gxt_path_entry.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        """处理双击透明度切换"""
-        if event.type() == QtCore.QEvent.MouseButtonDblClick:
+        """处理双击透明度切换和全局快捷键"""
+        if event.type() == QtCore.QEvent.Type.MouseButtonDblClick:
             if obj in [self.search_entry, self.gxt_path_entry]:
                 current_style = obj.styleSheet()
                 if "0.8" in current_style:
@@ -238,13 +343,72 @@ class GXTViewer(QWidget):
                     new_style = current_style.replace("0.95", "0.8")
                 obj.setStyleSheet(new_style)
                 return True
+        # Ctrl+M 打开调试菜单
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_M:
+                # 兼容PyQt6 WindowType写法，确保DebugMenuDialog窗口类型正确
+                # 只调用 show_menu，不传递 parent 参数
+                self.debug_menu.show_menu()
+                return True
         return super().eventFilter(obj, event)
 
-    def safe_add_row(self, row):
-        self.current_row = row
+    def show_debug_menu(self):
+        if self.debug_menu is None:
+            self.debug_menu = QMenu(self)
+            # 多功能调试菜单项
+            action_print_table = QAction("打印当前表格内容", self)
+            action_print_table.triggered.connect(self.debug_print_table)
+            self.debug_menu.addAction(action_print_table)
 
-    def safe_delete_row(self, row):
-        self.current_row = max(0, row-1)
+            action_reload_lang = QAction("重载语言文件", self)
+            action_reload_lang.triggered.connect(self.debug_reload_language)
+            self.debug_menu.addAction(action_reload_lang)
+
+            action_show_gxt_path = QAction("显示当前GXT路径", self)
+            action_show_gxt_path.triggered.connect(self.debug_show_gxt_path)
+            self.debug_menu.addAction(action_show_gxt_path)
+
+            action_show_version = QAction("显示窗口标题/版本", self)
+            action_show_version.triggered.connect(self.debug_show_version)
+            self.debug_menu.addAction(action_show_version)
+
+            action_dummy = QAction("（预留功能）", self)
+            action_dummy.setEnabled(False)
+            self.debug_menu.addAction(action_dummy)
+        # 居中弹出菜单
+        pos = self.mapToGlobal(self.rect().center())
+        if hasattr(self.debug_menu, "exec"):
+            self.debug_menu.exec(pos)
+        else:
+            self.debug_menu.exec_(pos)
+
+    def debug_print_table(self):
+        # 打印当前表格内容到控制台
+        rows = self.output_table.rowCount()
+        cols = self.output_table.columnCount()
+        print("=== 当前表格内容 ===")
+        for r in range(rows):
+            row_data = []
+            for c in range(cols):
+                item = self.output_table.item(r, c)
+                row_data.append(item.text() if item else "")
+            print(f"Row {r}: {row_data}")
+
+    def debug_reload_language(self):
+        # 重新加载当前语言
+        selected_lang = self.language_selector.currentText()
+        lang_file_path = os.path.join('languages', selected_lang)
+        self.load_language_file(lang_file_path)
+        self.update_ui_texts()
+        QMessageBox.information(self, "调试", "语言文件已重载")
+
+    def debug_show_gxt_path(self):
+        # 显示当前GXT文件路径
+        QMessageBox.information(self, "调试", f"GXT路径: {self.gxt_file_path}")
+
+    def debug_show_version(self):
+        # 显示窗口标题/版本
+        QMessageBox.information(self, "调试", f"窗口标题: {self.windowTitle()}\n版本: {APP_VERSION}")
 
     def change_language(self):
         selected_lang = self.language_selector.currentText()
@@ -275,8 +439,9 @@ class GXTViewer(QWidget):
         output_file_path = os.path.join(outDirName, name + '.txt')
         with open(output_file_path, 'w', encoding='utf-8') as f:
             f.write(f'[{name}]\n')
-            for text in reader.parseTKeyTDat(gxt):
-                f.write(text[0] + '=' + text[1] + '\n')
+            if reader is not None and hasattr(reader, "parseTKeyTDat"):
+                for text in reader.parseTKeyTDat(gxt):
+                    f.write(text[0] + '=' + text[1] + '\n')
 
     @staticmethod
     def createOutputDir(path: str):
@@ -286,156 +451,130 @@ class GXTViewer(QWidget):
             if e.errno != errno.EEXIST:
                 raise
 
-    def gxt_processing(self, file_path: str, outDirName: str):
+    def gxt_processing(self, file_path: str, outDirName: str, render_only=False):
+        import time
         gxt_name = os.path.splitext(os.path.basename(file_path))[0]
         try:
+            start_time = time.perf_counter()
             with open(file_path, 'rb') as gxt:
                 gxtversion = gta.gxt.getVersion(gxt)
                 if not gxtversion:
                     QMessageBox.critical(self, self.tr("error"), self.tr("error_unknown_gxt_version"))
-                    return []
-                
-                # 获取并设置窗口标题
+                    return ""
                 current_title = self.windowTitle()
                 new_title = self.tr("title_version") + " " + gxtversion
                 self.setWindowTitle(new_title)
 
                 gxtReader = gta.gxt.getReader(gxtversion)
+                if gxtReader is None:
+                    QMessageBox.critical(self, self.tr("error"), self.tr("error_unknown_gxt_version"))
+                    return ""
 
-                # 处理 GTA III 版本
+                content_lines = []
                 if gxtversion == 'III':
-                    text_content = gxtReader.parseTKeyTDat(gxt)
-                    self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
-                    with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
-                        for text in text_content:
-                            output_file.write(f"{text[0]}={text[1]}\n")
-                
+                    if hasattr(gxtReader, "parseTKeyTDat"):
+                        for text in gxtReader.parseTKeyTDat(gxt):
+                            # 修正：保留所有内容，包括最后一个字符
+                            content_lines.append(f"{text[0]}={text[1]}")
+                    content_str = "\n".join(content_lines)
+                    if not render_only:
+                        self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{gxt_name}.txt")
+                        with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
+                            output_file.write(content_str)
                 else:
-                    # 处理 VC 和 SA 版本
                     gxt_dir = os.path.join(os.path.dirname(file_path), gxt_name)
-                    self.createOutputDir(gxt_dir)  # 确保文件夹存在
-
-                    # 解析表格
-                    Tables = gxtReader.parseTables(gxt) if gxtReader.hasTables() else []
-                    
+                    if not render_only:
+                        self.createOutputDir(gxt_dir)
+                    Tables = []
+                    if hasattr(gxtReader, "hasTables") and gxtReader.hasTables() and hasattr(gxtReader, "parseTables"):
+                        Tables = gxtReader.parseTables(gxt)
+                    all_table_content = []
                     for table_name, _ in Tables:
-                        self.readOutTable(gxt, gxtReader, table_name, gxt_dir)
+                        table_lines = [f"[{table_name}]"]
+                        if hasattr(gxtReader, "parseTKeyTDat"):
+                            for text in gxtReader.parseTKeyTDat(gxt):
+                                # 修正：保留所有内容，包括最后一个字符
+                                table_lines.append(f"{text[0]}={text[1]}")
+                        all_table_content.append("\n".join(table_lines))
+                        if not render_only:
+                            table_file_path = os.path.join(gxt_dir, f"{table_name}.txt")
+                            with open(table_file_path, 'w', encoding='utf-8') as table_file:
+                                table_file.write("\n".join(table_lines))
+                    content_str = "\n\n".join(all_table_content)
+                    if not render_only:
+                        self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{outDirName}.txt")
+                        with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
+                            output_file.write(content_str)
 
-                    # 汇总所有表格的内容
-                    text_content = []
-                    for table_name, _ in Tables:
-                        table_file_path = os.path.join(gxt_dir, f"{table_name}.txt")
-                        with open(table_file_path, 'r', encoding='utf-8') as table_file:
-                            text_content.append(table_file.read())
-
-                    # 将所有表格内容写入一个汇总文件
-                    self.gxt_txt_path = os.path.join(os.path.dirname(file_path), f"{outDirName}.txt")
-                    with open(self.gxt_txt_path, 'w', encoding='utf-8') as output_file:
-                        output_file.write('\n\n'.join(text_content))
-
-                return text_content
-        
+                elapsed = time.perf_counter() - start_time
+                self.setWindowTitle(f"{self.tr('title_version')} {gxtversion} | {elapsed:.3f}s")
+                return content_str
         except Exception as e:
             QMessageBox.critical(self, self.tr("error"), self.tr("error_opening_gxt_file", error=str(e)))
-            return []
-        
-    def display_gxt_content_in_table(self, content: str):
-        self.parsed_content = content
-        
-        # 性能优化：禁用UI更新和信号
-        self.output_table.setUpdatesEnabled(False)
-        self.output_table.blockSignals(True)
-        self.output_table.clearContents()
-        self.output_table.setRowCount(0)
+            return ""
 
-        lines = content.splitlines()
-        section_names = []
-        table_data = []
-        row_section_map = {}
-        current_section = None
-        row_index = 0
-
-        # 优化1：预先创建字体对象
-        font_normal = QFont("Microsoft YaHei UI", 10)
-        font_bold = QFont("Microsoft YaHei UI", 10)
-        font_bold.setBold(True)
-
-        # 优化2：使用更高效的数据结构处理
-        for line in lines:
-            if line.startswith('[') and line.endswith(']'):
-                current_section = line[1:-1]
-                section_names.append(current_section)
-                row_section_map[current_section] = row_index
-                table_data.append(("section_marker", current_section, row_index))
-                row_index += 1
-            elif '=' in line:
-                key, value = line.split('=', 1)
-                table_data.append((key.strip(), value.strip(), row_index))
-                row_index += 1
-
-        # 优化3：预分配行数
-        self.output_table.setRowCount(len(table_data))
-
-        # 优化4：批量处理单元格数据
-        for row, (key, value, _) in enumerate(table_data):
-            # 处理段名行
-            if key == "section_marker":
-                item = QTableWidgetItem(f"[{value}]")
-                item.setFlags(Qt.ItemIsEnabled)  # 段名行不可编辑
-                item.setFont(font_bold)
-                self.output_table.setItem(row, 0, item)
-                self.output_table.setItem(row, 1, QTableWidgetItem(""))
-            else:
-                key_item = QTableWidgetItem(key)
-                value_item = QTableWidgetItem(value)
-                key_item.setFont(font_normal)
-                value_item.setFont(font_normal)
-                self.output_table.setItem(row, 0, key_item)
-                self.output_table.setItem(row, 1, value_item)
-
-            # 添加操作按钮
-            self.add_row_buttons(row)
-
-        # 设置段落下拉框
-        self.section_combobox.clear()
-        self.section_combobox.addItems(section_names)
-
-        # 性能优化：恢复UI更新
-        self.output_table.blockSignals(False)
-        self.output_table.setUpdatesEnabled(True)
-        self.output_table.viewport().update()
-
-        # 为下拉栏添加定位功能
-        self.section_combobox.currentIndexChanged.connect(lambda idx: self.scroll_to_section(idx, row_section_map))
-    
-    def open_gxt_path(self, file_path: str):
+    def open_gxt_file(self, file_path: str):
         if os.path.isfile(file_path) and file_path.lower().endswith(".gxt"):
             self.gxt_file_path = file_path
             outDirName = os.path.splitext(os.path.basename(file_path))[0]
-            text_content = self.gxt_processing(file_path, outDirName)
+            # 优先解析并渲染表格
+            content_str = self.gxt_processing(file_path, outDirName, render_only=True)
             self.output_table.clearContents()
-            output_txt_path = os.path.join(os.path.dirname(file_path), f"{outDirName}.txt")
-            if os.path.isfile(output_txt_path):
-                with open(output_txt_path, 'r', encoding='utf-8') as output_file:
-                    self.display_gxt_content_in_table(output_file.read())
+            if content_str:
+                self.display_gxt_content_in_table(content_str)
+                # 文件生成延后，异步或后台生成
+                QtCore.QTimer.singleShot(0, lambda: self.gxt_processing(file_path, outDirName, render_only=False))
             else:
                 QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_invalid_gxt_file_path"))
         else:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_invalid_gxt_file_path"))
 
+    def open_txt_file(self, file_path: str):
+        """支持直接打开txt文件并渲染到表格，自动校验格式错误"""
+        if os.path.isfile(file_path) and file_path.lower().endswith(".txt"):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # 校验格式
+                error_lines = []
+                lines = content.split('\n')
+                for idx, line in enumerate(lines):
+                    if not line.strip():
+                        continue
+                    if line.startswith('[') and line.endswith(']'):
+                        continue
+                    if '=' not in line:
+                        error_lines.append(idx + 1)
+                if error_lines:
+                    QMessageBox.critical(self, "TXT格式错误", f"以下行缺少等号(=)：\n{', '.join(map(str, error_lines))}")
+                    return
+                self.gxt_file_path = None
+                self.gxt_txt_path = file_path
+                self.display_gxt_content_in_table(content)
+            except Exception as e:
+                QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_opening_gxt_file", error=str(e)))
+        else:
+            QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_invalid_gxt_file_path"))
+
     def select_gxt_file(self):
         try:
-            file_path, _ = QFileDialog.getOpenFileName(self, self.tr("select_gxt_file"), "", "GXT文件 (*.gxt)")
+            file_path, _ = QFileDialog.getOpenFileName(self, self.tr("select_gxt_file"), "", "GXT文件 (*.gxt);;文本文件 (*.txt)")
             if file_path:
                 self.gxt_path_entry.clear()
                 self.gxt_path_entry.setText(file_path)
-                self.open_gxt_path(file_path)
+                if file_path.lower().endswith('.gxt'):
+                    self.open_gxt_file(file_path)
+                elif file_path.lower().endswith('.txt'):
+                    self.open_txt_file(file_path)
         except Exception as e:
             print("Error:", e)
 
     def open_gxt_from_input(self):
         file_path = self.gxt_path_entry.text()
-        self.open_gxt_path(file_path)
+        if file_path.lower().endswith('.gxt'):
+            self.open_gxt_file(file_path)
+        elif file_path.lower().endswith('.txt'):
+            self.open_txt_file(file_path)
 
     def save_generated_txt(self):
         if not self.parsed_content:
@@ -463,36 +602,125 @@ class GXTViewer(QWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and len(event.mimeData().urls()) == 1:
             url = event.mimeData().urls()[0]
-            if url.isLocalFile() and url.toLocalFile().lower().endswith(".gxt"):
+            if url.isLocalFile() and (url.toLocalFile().lower().endswith(".gxt") or url.toLocalFile().lower().endswith(".txt")):
                 event.acceptProposedAction()
 
     def dropEvent(self, event):
         url = event.mimeData().urls()[0]
-        gxt_path = url.toLocalFile()
-        self.open_gxt_path(gxt_path)
+        file_path = url.toLocalFile()
+        if file_path.lower().endswith('.gxt'):
+            self.open_gxt_file(file_path)
+        elif file_path.lower().endswith('.txt'):
+            self.open_txt_file(file_path)
 
     def save_and_build_gxt(self):
-        if not self.gxt_file_path:
+        # 检查gxt_file_path是否为空，如果是txt导入，则用txt路径所在目录
+        if self.gxt_file_path:
+            gxt_dir = os.path.dirname(self.gxt_file_path)
+        elif self.gxt_txt_path:
+            gxt_dir = os.path.dirname(self.gxt_txt_path)
+        else:
             QMessageBox.warning(self, self.tr("warning_messages"), self.tr("warning_select_and_parse_gxt_first"))
             return
 
-        # Set table to editable
-        for row in range(self.output_table.rowCount()):
-            item = self.output_table.item(row, 0)
-            if item:
-                item.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable)
-
-        # Get the directory of the input .gxt file
-        gxt_dir = os.path.dirname(self.gxt_file_path)
         debug_dir = os.path.join(gxt_dir, "Debug")
 
-        # Clear the Debug directory
         if os.path.exists(debug_dir):
             shutil.rmtree(debug_dir)
         self.createOutputDir(debug_dir)
 
-        # Determine the output text file name based on the version
-        version = self.windowTitle().split()[-1]
+        # 判断版本
+        version = None
+        auto_detected_version = None
+        if self.gxt_file_path:
+            try:
+                with open(self.gxt_file_path, 'rb') as gxt:
+                    version = gta.gxt.getVersion(gxt)
+            except Exception:
+                pass
+            if not version:
+                title = self.windowTitle()
+                for v in ['III', 'VC', 'SA', 'IV']:
+                    if v in title:
+                        version = v
+                        break
+        else:
+            # txt导入时，尝试根据txt内容自动识别版本，并让用户选择
+            version = None
+            auto_detected_version = None
+            if self.gxt_txt_path:
+                try:
+                    with open(self.gxt_txt_path, 'r', encoding='utf-8') as f:
+                        txt_content = f.read()
+                    lines = [line.strip() for line in txt_content.splitlines() if line.strip()]
+                    sections = [line for line in lines if line.startswith("[") and line.endswith("]")]
+                    keys = [line for line in lines if '=' in line and not (line.startswith("[") and line.endswith("]"))]
+                    section_names = set(s.lower() for s in sections)
+                    # 1. 没有section，且全部为key=value，极大概率为GTA3（III）
+                    if not sections:
+                        auto_detected_version = "III"
+                    else:
+                        # 2. 有section，分析section名和key格式
+                        import re
+                        vc_section_re = re.compile(r"^\[[0-9A-Z_]{1,7}\]$")
+                        vc_key_re = re.compile(r"^[0-9A-Z_]{1,7}$")
+                        sa_section_re = re.compile(r"^\[[A-Z_]{1,7}\]$")  # SA表名只能大写字母和下划线
+                        sa_key_re = re.compile(r"^[0-9A-F]{8}$", re.IGNORECASE)
+                        iv_section_re = re.compile(r"^\[[0-9A-Za-z_]{1,7}\]$")  # IV表名可有小写
+                        # 检查所有section和key是否符合VC、SA、IV格式
+                        is_vc = all(vc_section_re.match(s) for s in sections) and all(vc_key_re.match(k.split('=')[0]) for k in keys)
+                        is_sa = all(sa_section_re.match(s) for s in sections) and all(sa_key_re.match(k.split('=')[0]) for k in keys)
+                        is_iv = all(iv_section_re.match(s) for s in sections) and all(sa_key_re.match(k.split('=')[0]) for k in keys)
+                        if is_sa:
+                            # 优化：如果所有section都是大写字母和下划线，提示“识别为SA/IV”
+                            auto_detected_version = "SA"
+                            if all(sa_section_re.match(s) for s in sections):
+                                auto_detected_version = "SA/IV"
+                        elif is_vc:
+                            auto_detected_version = "VC"
+                        elif is_iv:
+                            auto_detected_version = "IV"
+                        elif "[main]" in section_names and len(section_names) == 1:
+                            # 只有[MAIN]，进一步判断key格式
+                            crc32_key = re.compile(r"^[0-9A-Fa-f]{8}$")
+                            key_samples = [k.split('=')[0].strip() for k in keys[:10]]
+                            if all(crc32_key.match(k) for k in key_samples if k):
+                                auto_detected_version = "IV"
+                            else:
+                                auto_detected_version = "SA"
+                        else:
+                            # fallback: 文件名判断
+                            txt_name = os.path.basename(self.gxt_txt_path).lower()
+                            if "gta3" in txt_name:
+                                auto_detected_version = "III"
+                            elif "gtavc" in txt_name:
+                                auto_detected_version = "VC"
+                            elif "gtasa" in txt_name:
+                                auto_detected_version = "SA"
+                            elif "gta4" in txt_name:
+                                auto_detected_version = "IV"
+                            else:
+                                auto_detected_version = "SA"
+                except Exception:
+                    auto_detected_version = "SA"
+
+            # 弹窗让用户选择版本，所有文本迁移至lang文件
+            version_map = {
+                "III": self.tr("gta3_version"),
+                "VC": self.tr("gtavc_version"),
+                "SA": self.tr("gtasa_version"),
+                "IV": self.tr("gtaiv_version"),
+            }
+            version_keys = ["III", "VC", "SA", "IV"]
+            default_idx = version_keys.index(auto_detected_version) if auto_detected_version in version_keys else 2
+            items = [f"{v}（{version_map[v]}）" for v in version_keys]
+            msg = self.tr("auto_detected_version_msg", auto_detected_version=auto_detected_version)
+            item, ok = QtWidgets.QInputDialog.getItem(self, self.tr("select_gxt_version_title"), msg, items, default_idx, False)
+            if ok and item:
+                version = version_keys[items.index(item)]
+            else:
+                return  # 用户取消
+
         output_txt_path = {
             'III': os.path.join(debug_dir, "gta3.txt"),
             'VC': os.path.join(debug_dir, "gtavc.txt"),
@@ -504,26 +732,28 @@ class GXTViewer(QWidget):
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_unknown_gxt_version"))
             return
 
-        # Save edited content to temporary file
         with open(output_txt_path, 'w', encoding='utf-8') as output_file:
             for row in range(self.output_table.rowCount()):
-                key_item = self.output_table.item(row, 0)
-                value_item = self.output_table.item(row, 1)
+                # 遍历表格的每一行
+                key_item = self.output_table.item(row, 0)  # 获取第0列（key）的单元格
+                value_item = self.output_table.item(row, 1)  # 获取第1列（value）的单元格
                 if key_item and value_item:
-                    line = f"{key_item.text()}={value_item.text()}\n"
-                    if '[' in key_item.text():  # 判断键是否含有[
-                        line = line.replace('=', '', 1)  # 删除第一个=号
-                    output_file.write(line)
+                    # 如果key和value都存在
+                    line = f"{key_item.text()}={value_item.text()}\n"  # 构造"key=value"格式的字符串并换行
+                    if '[' in key_item.text():
+                        # 如果key中包含'['，说明是section行，需要去掉等号
+                        line = line.replace('=', '', 1)  # 只替换第一个等号
+                    output_file.write(line)  # 写入到输出文件
 
-        # Copy builder exe to Debug directory
         builder_exe = {
-            'III': 'LCGXTBuilder.exe',
-            'VC': 'VCGXTBuilder.exe',
-            'SA': 'SAGXTBuilder.exe',
-            'IV': 'IVGXTBuilder.exe'
-        }.get(version)
+            'III': 'LCGXTBuilder.exe',  # GTA3版本使用LCGXTBuilder.exe
+            'VC': 'VCGXTBuilder.exe',   # GTAVC版本使用VCGXTBuilder.exe
+            'SA': 'SAGXTBuilder.exe',   # GTASA版本使用SAGXTBuilder.exe
+            'IV': 'IVGXTBuilder.exe'    # GTAIV版本使用IVGXTBuilder.exe
+        }.get(version)  # 根据版本选择对应的构建器
 
         if not builder_exe:
+            # 如果没有找到对应的构建器，弹出错误提示
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_unknown_gxt_version"))
             return
 
@@ -536,55 +766,32 @@ class GXTViewer(QWidget):
 
         shutil.copy(builder_path, debug_builder_path)
 
-        # Run builder exe
         try:
             subprocess.run([debug_builder_path, output_txt_path], check=True, cwd=debug_dir)
         except subprocess.CalledProcessError as e:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_running_builder", error=str(e)))
             return
 
-        # Search for any .gxt file in the Debug directory and copy to original directory
         gxt_files = [f for f in os.listdir(debug_dir) if f.endswith('.gxt')]
         if gxt_files:
-            # Assuming there's only one .gxt file generated
             generated_gxt_path = os.path.join(debug_dir, gxt_files[0])
-            edited_gxt_path = os.path.join(gxt_dir, f"{os.path.splitext(os.path.basename(self.gxt_file_path))[0]}_Edited.gxt")
+            # 保存到txt或gxt同目录
+            if self.gxt_file_path:
+                base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+            else:
+                base_name = os.path.splitext(os.path.basename(self.gxt_txt_path))[0]
+            edited_gxt_path = os.path.join(gxt_dir, f"{base_name}_Edited.gxt")
             shutil.copy(generated_gxt_path, edited_gxt_path)
             QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_gxt_saved", path=edited_gxt_path))
         else:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_gxt_not_generated"))
-        
-    def safe_add_row(self, row):
-        """带异常处理的新增行"""
-        try:
-            if 0 <= row < self.output_table.rowCount():
-                self.output_table.insertRow(row + 1)
-                # 初始化新行内容
-                self.output_table.setItem(row+1, 0, CustomTableWidgetItem(self.tr("new_tkey")))
-                self.output_table.setItem(row+1, 1, CustomTableWidgetItem(self.tr("new_tdat")))
-                self.add_row_buttons(row+1)
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"添加行失败: {str(e)}")
-
-    def update_button_events(self, row):
-        """更新指定行的按钮点击事件"""
-        button_widget = self.output_table.cellWidget(row, 2)
-        if button_widget:
-            add_button = button_widget.layout().itemAt(0).widget()
-            delete_button = button_widget.layout().itemAt(1).widget()
-            add_button.clicked.disconnect()
-            delete_button.clicked.disconnect()
-            add_button.clicked.connect(lambda: self.add_row(row))
-            delete_button.clicked.connect(lambda: self.delete_row(row))
 
     def add_row_buttons(self, row):
-        """优化后的按钮创建方法"""
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(2, 0, 2, 0)  # 减少容器边距
-        layout.setSpacing(10)  # 增加按钮间距到10px
+        layout.setContentsMargins(2, 0, 2, 0)
+        layout.setSpacing(10)
 
-        # 新样式配置
         btn_style = """
             QPushButton {{
                 min-width: {size}px;
@@ -599,64 +806,50 @@ class GXTViewer(QWidget):
             QPushButton:hover {{ background: {hover_color}; }}
             QPushButton:pressed {{ background: {press_color}; }}
         """
-        
-        # 调整按钮尺寸为24x24
         base_size = 20
         add_btn = QPushButton("+")
         add_btn.setStyleSheet(btn_style.format(
             size=base_size,
-            hover_color="#81C784",  # 更柔和的绿色
-            press_color="#4CAF50"    # 标准绿色
-        ) + "background: #66BB6A; color: white;")  # 浅绿色背景
-        
+            hover_color="#81C784",
+            press_color="#4CAF50"
+        ) + "background: #66BB6A; color: white;")
         del_btn = QPushButton("-")
         del_btn.setStyleSheet(btn_style.format(
             size=base_size,
-            hover_color="#EF5350",  # 更柔和的红色
-            press_color="#D32F2F"   # 标准红色
-        ) + "background: #EF9A9A; color: white;")  # 浅红色背景
+            hover_color="#EF5350",
+            press_color="#D32F2F"
+        ) + "background: #EF9A9A; color: white;")
 
-        # 添加按钮到布局
         layout.addWidget(add_btn)
         layout.addWidget(del_btn)
-        
-        # 设置按钮对齐方式
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setAlignment(QtCore.Qt.AlignCenter)
 
-        # 安全绑定事件
         try:
-            add_btn.clicked.disconnect()  # 先断开已有连接
-        except:
+            add_btn.clicked.disconnect()
+        except Exception:
             pass
         add_btn.clicked.connect(lambda: self.safe_add_row(row))
-        
         try:
             del_btn.clicked.disconnect()
-        except:
+        except Exception:
             pass
         del_btn.clicked.connect(lambda: self.safe_delete_row(row))
-        
-        layout.addWidget(add_btn)
-        layout.addWidget(del_btn)
-        
+
         self.output_table.setCellWidget(row, 2, widget)
 
-
     def handle_add_button_clicked(self):
-        row_position = self.output_table.indexAt(self.sender().parent().pos()).row()
-        self.add_row(row_position)
+        sender = self.sender()
+        parent = getattr(sender, "parentWidget", None)
+        if callable(parent):
+            row_position = self.output_table.indexAt(parent().pos()).row()
+            self.safe_add_row(row_position)
 
     def handle_delete_button_clicked(self):
-        row_position = self.output_table.indexAt(self.sender().parent().pos()).row()
-        self.delete_row(row_position)
-
-    def safe_delete_row(self, row):
-        """带安全检查的删除行"""
-        try:
-            if 0 <= row < self.output_table.rowCount():
-                self.output_table.removeRow(row)
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"删除行失败: {str(e)}")
+        sender = self.sender()
+        parent = getattr(sender, "parentWidget", None)
+        if callable(parent):
+            row_position = self.output_table.indexAt(parent().pos()).row()
+            self.safe_delete_row(row_position)
 
     def highlight_selected_section(self, section_name):
         # Find the section content
@@ -681,18 +874,15 @@ class GXTViewer(QWidget):
             self.gxt_path_entry.setText(content)
 
     def filter_table(self, text):
-        """优化后的过滤方法"""
         text = text.lower()
         for row in range(self.output_table.rowCount()):
             key_item = self.output_table.item(row, 0)
             value_item = self.output_table.item(row, 1)
             match = False
-            
             if key_item and value_item:
                 key = key_item.text().lower()
                 value = value_item.text().lower()
                 match = text in key or text in value
-                
             self.output_table.setRowHidden(row, not match)
 
     def scroll_to_section(self, idx, row_section_map):
@@ -700,14 +890,201 @@ class GXTViewer(QWidget):
         section_name = self.section_combobox.itemText(idx)
         if section_name in row_section_map:
             row = row_section_map[section_name]
-            self.output_table.scrollToItem(self.output_table.item(row, 0), QAbstractItemView.PositionAtTop)
+            self.output_table.scrollToItem(self.output_table.item(row, 0), QAbstractItemView.ScrollHint.PositionAtTop)
+
+    def safe_add_row(self, row):
+        """安全地在指定行后插入一行（用于表格按钮）"""
+        self.output_table.insertRow(row + 1)
+        for col in range(self.output_table.columnCount()):
+            self.output_table.setItem(row + 1, col, QTableWidgetItem(""))
+
+    def safe_delete_row(self, row):
+        """安全地删除指定行（用于表格按钮）"""
+        if 0 <= row < self.output_table.rowCount():
+            self.output_table.removeRow(row)
+
+    def display_gxt_content_in_table(self, content: str):
+        """
+        将GXT或TXT内容字符串渲染到表格中。
+        支持section和key=value格式，自动分配到表格行。
+        """
+        # 极致性能优化+按钮显示修复+选中可读性
+        self.parsed_content = content
+        self.output_table.setUpdatesEnabled(False)
+        self.output_table.blockSignals(True)
+        self.output_table.clearContents()
+
+        # 预处理所有行，避免多次split和判断
+        lines = content.split('\n')
+        valid_lines = []
+        section_names = []
+        row_section_map = {}
+        table_row = 0
+        font_normal = QFont()
+        font_bold = QFont()
+        font_bold.setBold(True)
+
+        append_valid = valid_lines.append
+        append_section = section_names.append
+
+        # 一次性遍历并分类
+        for idx, line in enumerate(lines):
+            if not line:
+                continue
+            if line.startswith('[') and line.endswith(']'):
+                append_valid(('section', line))
+            elif '=' in line:
+                append_valid(('kv', line))
+
+        row_count = len(valid_lines)
+        self.output_table.setRowCount(row_count)
+
+        items0 = [None] * row_count
+        items1 = [None] * row_count
+
+        for idx, (typ, line) in enumerate(valid_lines):
+            if typ == 'section':
+                section = line[1:-1]
+                append_section(section)
+                row_section_map[section] = table_row
+                item = QTableWidgetItem(line)
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                item.setFont(font_bold)
+                items0[table_row] = item
+                items1[table_row] = QTableWidgetItem("")
+                table_row += 1
+            elif typ == 'kv':
+                eq = line.find('=')
+                key = line[:eq].strip()
+                value = line[eq+1:].strip()
+                key_item = QTableWidgetItem(key)
+                value_item = QTableWidgetItem(value)
+                key_item.setFont(font_normal)
+                value_item.setFont(font_normal)
+                items0[table_row] = key_item
+                items1[table_row] = value_item
+                table_row += 1
+
+        for i in range(table_row):
+            if items0[i] is not None:
+                self.output_table.setItem(i, 0, items0[i])
+            if items1[i] is not None:
+                self.output_table.setItem(i, 1, items1[i])
+
+        self.output_table.setRowCount(table_row)
+
+        # 设置行号
+        for i in range(table_row):
+            self.output_table.setVerticalHeaderItem(i, QTableWidgetItem(str(i + 1)))
+
+        self.section_combobox.blockSignals(True)
+        self.section_combobox.clear()
+        self.section_combobox.addItems(section_names)
+        self.section_combobox.blockSignals(False)
+
+        self.output_table.blockSignals(False)
+        self.output_table.setUpdatesEnabled(True)
+        self.output_table.viewport().update()
+
+        # --- 优化：鼠标悬停显示按钮 ---
+        for r in range(self.output_table.rowCount()):
+            self.output_table.removeCellWidget(r, 2)
+
+        def get_btn_widget(row):
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(2, 0, 2, 0)
+            layout.setSpacing(10)
+            add_btn = QPushButton("+")
+            del_btn = QPushButton("-")
+            btn_style = """
+                QPushButton {{
+                    min-width: {size}px;
+                    max-width: {size}px;
+                    min-height: {size}px;
+                    max-height: {size}px;
+                    border-radius: 4px;
+                    font: bold 14px "Arial";
+                    padding: 0px;
+                    margin: 0px;
+                }}
+                QPushButton:hover {{ background: {hover_color}; }}
+                QPushButton:pressed {{ background: {press_color}; }}
+            """
+            base_size = 20
+            add_btn.setStyleSheet(btn_style.format(
+                size=base_size,
+                hover_color="#81C784",
+                press_color="#4CAF50"
+            ) + "background: #66BB6A; color: white;")
+            del_btn.setStyleSheet(btn_style.format(
+                size=base_size,
+                hover_color="#EF5350",
+                press_color="#D32F2F"
+            ) + "background: #EF9A9A; color: white;")
+            layout.addWidget(add_btn)
+            layout.addWidget(del_btn)
+            try:
+                add_btn.clicked.disconnect()
+            except Exception:
+                pass
+            add_btn.clicked.connect(lambda: self.safe_add_row(row))
+            try:
+                del_btn.clicked.disconnect()
+            except Exception:
+                pass
+            del_btn.clicked.connect(lambda: self.safe_delete_row(row))
+            widget.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+            return widget
+
+        class TableHoverEventFilter(QtCore.QObject):
+            def __init__(self, table, btn_widget_pool, get_btn_widget):
+                super().__init__(table)
+                self.table = table
+                self.get_btn_widget = get_btn_widget
+                self.last_row = -1
+
+            def eventFilter(self, obj, event):
+                if event.type() == QtCore.QEvent.Type.MouseMove:
+                    pos = event.pos()
+                    index = self.table.indexAt(pos)
+                    row = index.row()
+                    if row != self.last_row:
+                        if 0 <= self.last_row < self.table.rowCount():
+                            self.table.removeCellWidget(self.last_row, 2)
+                        self.last_row = row
+                        if 0 <= row < self.table.rowCount():
+                            item = self.table.item(row, 0)
+                            if item and not (item.text().startswith('[') and item.text().endswith(']')):
+                                self.table.setCellWidget(row, 2, self.get_btn_widget(row))
+                            else:
+                                self.table.removeCellWidget(row, 2)
+                    return False
+                elif event.type() == QtCore.QEvent.Type.Leave:
+                    if 0 <= self.last_row < self.table.rowCount():
+                        self.table.removeCellWidget(self.last_row, 2)
+                    self.last_row = -1
+                    return False
+                return super().eventFilter(obj, event)
+
+        if hasattr(self, "_table_hover_filter") and self._table_hover_filter:
+            if self.output_table.viewport() is not None:
+                self.output_table.viewport().removeEventFilter(self._table_hover_filter)
+        self._table_hover_filter = TableHoverEventFilter(self.output_table, None, get_btn_widget)
+        if self.output_table.viewport() is not None:
+            self.output_table.viewport().installEventFilter(self._table_hover_filter)
+        self.output_table.setMouseTracking(True)
+        # --- 结束 ---
+
+        self.section_combobox.currentIndexChanged.connect(
+            lambda idx: self.scroll_to_section(idx, row_section_map)
+        )
 
 def main():
-    
     def excepthook(exc_type, exc_value, exc_tb):
         import traceback
         msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        QMessageBox.critical(None, "未捕获异常", msg)
+        show_copyable_error(None, "未捕获异常", msg)
         sys.exit(1)
 
     sys.excepthook = excepthook
@@ -720,7 +1097,7 @@ def main():
         /* ========== 基础框架样式 ========== 
         设计目标：建立统一的视觉基线和呼吸感 */
         QWidget {
-            background: #F8FAFC;  /* 主背景色-浅灰蓝 */
+            background: #F8FAFC;  /* 主背景色-浅灰 */
             color: #2D3748;       /* 主文字色-深灰 */
             font-family: 'Microsoft YaHei UI', 'Microsoft YaHei'; /* 字体优先使用系统默认 */
             font-size: 13px;      /* 基准字号保持可读性 */
@@ -762,7 +1139,6 @@ def main():
             border-radius: 10px;    /* 统一圆角 */
             padding: 8px 16px;     /* 舒适点击区域 */
             min-width: 90px;       /* 保证按钮宽度一致 */
-            transition: background 0.7s; /* 平滑状态过渡 */
         }
         /* 悬停状态 - 颜色加深10% */
         QPushButton:hover { background: #3182CE; }
@@ -810,6 +1186,27 @@ def main():
             padding: 10px;         /* 单元格内边距 */
             border-bottom: 1px solid #EDF2F7; /* 下划线分隔 */
         }
+        /* 修正选中单元格文字颜色为黑色 */
+        QTableWidget::item:selected {
+            color: #222 !important;
+            background: #BEE3F8;
+        }
+        /* 编辑框半透明+模糊效果 */
+        QTableWidget QLineEdit {
+            background: rgba(255,255,255,0.7);
+            border: 2px solid #63B3ED;
+            border-radius: 8px;
+            padding: 8px;
+            color: #222;
+            /* 兼容性：部分平台支持 backdrop-filter */
+            backdrop-filter: blur(6px);
+        }
+        QTableWidget QLineEdit:focus {
+            background: rgba(255,255,255,0.85);
+            border: 2px solid #3182CE;
+            color: #111;
+            backdrop-filter: blur(10px);
+        }
 
         /* ========== 下拉菜单 ========== */
         QComboBox::drop-down {
@@ -825,38 +1222,50 @@ def main():
         /* ========== 滚动条 ==========
         设计目标：保持功能可见性同时最小化视觉干扰 */
         QScrollBar:vertical {
-            background: #F1F5F9;   /* 轨道背景色 */
-            width: 15px;           /* 窄幅设计 */
-            margin: 2px;           /* 外边距 */
+            background: #F1F5F9;
+            width: 12px;
+            margin: 2px 0 2px 0;
+            border-radius: 6px;
         }
-        /* 滚动条手柄 */
         QScrollBar::handle:vertical {
-            background: #CBD5E0;   /* 中灰色 */
-            border-radius:5px;    /* 圆角设计 */
-            min-height: 50px;      /* 最小高度 */
+            background: #BFD7ED;
+            min-height: 40px;
+            border-radius: 6px;
         }
-       /* 表格选中状态 */
-        QTableView::item:selected {
-            background: #90CDF4;
-            color: #1A202C;
-            border: none;
+        QScrollBar::handle:vertical:hover {
+            background: #7BA7D7;
         }
-
-        /* 滚动条箭头样式 */
-        QScrollBar::up-arrow, QScrollBar::down-arrow {
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             background: none;
             border: none;
-            color: #718096;
+            height: 0px;
         }
-        
-        QScrollBar::add-line, QScrollBar::sub-line {
-            background: #E2E8F0;
-            border: 1px solid #CBD5E0;
-            height: 20px;
+        QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+            width: 0; height: 0;
+            background: none;
         }
-        
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            width: 20px;
+        QScrollBar:horizontal {
+            background: #F1F5F9;
+            height: 12px;
+            margin: 0 2px 0 2px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #BFD7ED;
+            min-width: 40px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background: #7BA7D7;
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            background: none;
+            border: none;
+            width: 0px;
+        }
+        QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+            width: 0; height: 0;
+            background: none;
         }
         /* ========== 操作按钮 ==========
             /* 确保按钮文字居中 */
@@ -891,6 +1300,8 @@ def main():
 
     window = GXTViewer()
     window.show()
+    # 使主窗口获得焦点以便快捷键生效
+    window.setFocus()
 
     def handle_update(new_version, release_url, message):
         title = window.tr("update_available_title")
@@ -912,10 +1323,10 @@ def main():
             window,
             title,
             base_msg,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             import webbrowser
             webbrowser.open(release_url)
 
@@ -934,9 +1345,9 @@ def main():
     if len(sys.argv) == 2 and sys.argv[1].endswith(".gxt"):
         gxt_path = sys.argv[1]
         window.gxt_file_path = gxt_path
-        window.open_gxt_path(gxt_path)
+        window.open_gxt_file(gxt_path)
 
-    app.exec_()
+    app.exec()
 
 if __name__ == '__main__':
     main()

@@ -1,45 +1,73 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QScrollArea, QDesktopWidget
-from PyQt5.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QScrollArea
+from PyQt6.QtCore import Qt
 
 def open_about_window(parent):
     about_text = parent.tr("about_text_html")
-    
-    # Create a QDialog for more flexibility
     about_dialog = QDialog(parent)
     about_dialog.setWindowTitle(parent.tr("about_window_title"))
-    
-    # Create a scroll area to hold the label
-    scroll_area = QScrollArea()
-    scroll_area.setWidgetResizable(True)  # Allow the label to resize with the scroll area
+    about_dialog.setStyleSheet("""
+        QDialog {
+            background: #F8FAFC;
+        }
+        QScrollArea {
+            background: transparent;
+            border: none;
+        }
+        QLabel {
+            color: #2D3748;
+            font-size: 14px;
+            font-family: 'Microsoft YaHei UI', 'Microsoft YaHei';
+        }
+        QScrollBar:vertical {
+            background: #F1F5F9;
+            width: 12px;
+            margin: 2px 0 2px 0;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:vertical {
+            background: #BFD7ED;
+            min-height: 40px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #7BA7D7;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            background: none;
+            border: none;
+            height: 0px;
+        }
+        QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+            width: 0; height: 0;
+            background: none;
+        }
+    """)
 
-    # Create a label to display the text
+    scroll_area = QScrollArea()
+    scroll_area.setWidgetResizable(True)
+
     about_label = QLabel(about_text)
-    about_label.setTextFormat(Qt.RichText)
-    about_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-    about_label.setWordWrap(True)  # Enable word wrap for better content fitting
+    about_label.setTextFormat(Qt.TextFormat.RichText)
+    about_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    about_label.setWordWrap(True)
     scroll_area.setWidget(about_label)
 
-    # Create a layout and add the scroll area
     layout = QVBoxLayout(about_dialog)
     layout.addWidget(scroll_area)
     about_dialog.setLayout(layout)
-    
-    # Set the default size to 660x650
+
     about_dialog.resize(660, 650)
-    
-    # Make the dialog resizable
     about_dialog.setSizeGripEnabled(True)
 
-    # Get the available screen size
-    screen = QDesktopWidget().availableGeometry()
-    screen_width = screen.width()
-    screen_height = screen.height()
+    # 获取屏幕大小，兼容PyQt6
+    screen = about_dialog.screen()
+    if screen is not None:
+        screen_geometry = screen.availableGeometry()
+        screen_width = screen_geometry.width()
+        screen_height = screen_geometry.height()
+        if about_dialog.width() > screen_width or about_dialog.height() > screen_height:
+            desired_width = min(about_dialog.width(), screen_width - 100)
+            desired_height = min(about_dialog.height(), screen_height - 100)
+            about_dialog.resize(desired_width, desired_height)
 
-    # Ensure the dialog doesn't exceed screen size
-    if about_dialog.width() > screen_width or about_dialog.height() > screen_height:
-        desired_width = min(about_dialog.width(), screen_width - 100)
-        desired_height = min(about_dialog.height(), screen_height - 100)
-        about_dialog.resize(desired_width, desired_height)
-    
-    # Show the dialog
-    about_dialog.exec_()
+    about_dialog.exec()
