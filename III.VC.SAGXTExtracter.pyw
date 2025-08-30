@@ -6,9 +6,9 @@ from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog,
     QMessageBox, QTableWidget, QTableWidgetItem, QLineEdit, QWidget, QComboBox, QAbstractItemView, QDialog, QHeaderView, QSizePolicy,
-    QStyledItemDelegate, QMenu
+    QStyledItemDelegate, QMenu, QTextEdit
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QFont, QTextDocument, QColor, QAction
 
 # 兼容PyQt6的SectionResizeMode写法
@@ -48,7 +48,7 @@ def show_copyable_error(parent, title, text):
     dlg.setModal(True)
     dlg.exec()
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 myappid = "III.VC.SAGXTExtracter"
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
@@ -73,6 +73,8 @@ class GXTViewer(QWidget):
         self._row_cache = None  # 新增：缓存表格行数据
         self.debug_menu = DebugMenu(self)
         self._table_hover_filter = None  # 防止未定义
+        self.section_buttons = []  # 初始化section_buttons属性
+        self.regex_mode = False  # 添加正则表达式模式标志
         self.load_language_file()
         self.initUI()
         self.installEventFilter(self)  # 用于全局快捷键
@@ -101,24 +103,34 @@ class GXTViewer(QWidget):
             if file.endswith('.lang'):
                 self.available_languages.append(file)
 
-    def tr(self, key, **kwargs):
+    def tr(self, key: str, **kwargs) -> str:
         """Helper function to retrieve translated text and format it."""
-        return self.translations.get(key, key).format(**kwargs)
+        if not key:
+            return ""
+        translation = self.translations.get(str(key), str(key))
+        return translation.format(**kwargs)
 
     def initUI(self):
         self.load_available_languages()
-
         self.setWindowIcon(QIcon('./favicon.ico'))
         self.setWindowTitle(self.tr("window_title"))
         self.resize(960, 618)
+        
+        # 添加搜索防抖定时器
+        self.search_timer = QtCore.QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.perform_search)
+        self.search_cache = {}  # 搜索缓存
+        self.table_data_cache = []  # 表格数据缓存
+        self.regex_mode = False  # 添加正则表达式模式标志
 
         font = QtGui.QFont("Microsoft YaHei UI", 10)
         app = QApplication.instance()
         if app is not None:
-            app.setFont(font)  # 修正 setFont 用法
+            QApplication.setFont(font)  # PyQt6使用静态方法
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 10, 15, 10)  # 减少边距
+        main_layout.setContentsMargins(15, 10, 15, 10)
         main_layout.setSpacing(12)
 
         control_layout = QVBoxLayout()
@@ -131,13 +143,12 @@ class GXTViewer(QWidget):
         control_layout.addWidget(self.language_selector)
 
         self.gxt_path_entry = QLineEdit(self)
-        if self.gxt_path_entry is not None:
-            self.gxt_path_entry.setVisible(False)  # Hides the QLineEdit without affecting its functionality
+        self.gxt_path_entry.setVisible(False)
         #control_layout.addWidget(self.gxt_path_entry)
 
         self.title_label = ClickableLabel("<h1>" + self.tr("window_title") + "</h1>")
         self.title_label.setOpenExternalLinks(True)
-        self.title_label.setToolTip(self.tr("tooltip_browse_button"))
+        self.title_label.setToolTip(self.tr("tooltip_title"))
         self.title_label.clicked.connect(self.open_about_window)
         self.title_label.setStyleSheet("QLabel { color: #2c2c2c; }")
         control_layout.addWidget(self.title_label)
@@ -150,31 +161,57 @@ class GXTViewer(QWidget):
 
         self.browse_button = QPushButton(self.tr("browse_button_text"), self)
         self.browse_button.clicked.connect(self.select_gxt_file)
-        self.browse_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.browse_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 12px; padding: 5px; min-width: 100px; min-height: 28px; font-size: 14px; font-weight: bold; }")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(2)
+        shadow.setOffset(1, 1)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.browse_button.setGraphicsEffect(shadow)
         self.browse_button.setToolTip(self.tr("tooltip_browse_button"))
         button_layout.addWidget(self.browse_button)
 
         self.convert_button = QPushButton(self.tr("convert_button_text"), self)
         self.convert_button.clicked.connect(self.convert_using_table)
-        self.convert_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.convert_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 12px; padding: 5px; min-width: 100px; min-height: 28px; font-size: 14px; font-weight: bold; }")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(2)
+        shadow.setOffset(1, 1)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.convert_button.setGraphicsEffect(shadow)
         self.convert_button.setToolTip(self.tr("tooltip_convert_button"))
         button_layout.addWidget(self.convert_button)
 
         self.save_button = QPushButton(self.tr("save_button_text"), self)
         self.save_button.clicked.connect(self.save_generated_txt)
-        self.save_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.save_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 12px; padding: 5px; min-width: 100px; min-height: 28px; font-size: 14px; font-weight: bold; }")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(2)
+        shadow.setOffset(1, 1)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.save_button.setGraphicsEffect(shadow)
         self.save_button.setToolTip(self.tr("tooltip_save_button"))
         button_layout.addWidget(self.save_button)
 
         self.clear_button = QPushButton(self.tr("clear_button_text"), self)
-        self.clear_button.clicked.connect(self.clear_table)
-        self.clear_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        # self.clear_button.clicked.connect(self.clear_table)
+        self.clear_button.clicked.connect(self.smart_translate_table)
+        self.clear_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 12px; padding: 5px; min-width: 100px; min-height: 28px; font-size: 14px; font-weight: bold; }")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(2)
+        shadow.setOffset(1, 1)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.clear_button.setGraphicsEffect(shadow)
         self.clear_button.setToolTip(self.tr("tooltip_clear_button"))
         button_layout.addWidget(self.clear_button)
 
         self.save_gxt_button = QPushButton(self.tr("save_gxt_button_text"), self)
         self.save_gxt_button.clicked.connect(self.save_and_build_gxt)
-        self.save_gxt_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 10px; padding: 5px; }")
+        self.save_gxt_button.setStyleSheet("QPushButton { border: 2px solid gray; border-radius: 12px; padding: 5px; min-width: 100px; min-height: 28px; font-size: 14px; font-weight: bold; }")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(2)
+        shadow.setOffset(1, 1)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.save_gxt_button.setGraphicsEffect(shadow)
         self.save_gxt_button.setToolTip(self.tr("tooltip_save_gxt_button"))
         button_layout.addWidget(self.save_gxt_button)
 
@@ -182,6 +219,79 @@ class GXTViewer(QWidget):
         control_layout.addWidget(button_groupbox)
 
         main_layout.addLayout(control_layout)
+
+        # 创建水平布局以容纳侧边栏和表格
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(10)
+        
+        # 创建侧边栏部件
+        self.sidebar = QGroupBox(self.tr("section_sidebar_title"))
+        self.sidebar.setStyleSheet("""
+            QGroupBox {
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+                margin-top: 16px;
+                padding-top: 10px;
+                background: white;
+                min-width: 180px;
+                max-width: 250px;
+                height: 100%;
+            }
+            QGroupBox::title {
+                color: #4A5568;
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 3px;
+            }
+        """)
+        
+        # 创建侧边栏布局
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setContentsMargins(5, 5, 5, 5)
+        sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # 创建侧边栏按钮区域
+        self.sidebar_widget = QtWidgets.QWidget()
+        self.sidebar_layout = QVBoxLayout(self.sidebar_widget)
+        self.sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.sidebar_layout.setSpacing(1)
+        
+        # 添加滚动区域以容纳大量section
+        self.sidebar_scroll = QtWidgets.QScrollArea()
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setWidget(self.sidebar_widget)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sidebar_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: #F1F5F9;
+                width: 10px;
+                border-radius: 5px;
+                margin: 2px 0 2px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #BFD7ED;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #7BA7D7;
+            }
+        """)
+        
+        sidebar_layout.addWidget(self.sidebar_scroll)
+        self.sidebar.setLayout(sidebar_layout)
+        
+        # 添加侧边栏到内容布局
+        content_layout.addWidget(self.sidebar, 1)
+        
+        # 创建右侧内容区域布局
+        right_content_layout = QVBoxLayout()
+        right_content_layout.setSpacing(10)
 
         # 下拉栏统一美工样式
         combo_style = """
@@ -227,31 +337,23 @@ class GXTViewer(QWidget):
             }
         """
 
-        self.section_combobox = QComboBox(self)
-        self.section_combobox.currentTextChanged.connect(self.highlight_selected_section)
-        self.section_combobox.setStyleSheet(combo_style)
-        self.section_combobox.setMinimumWidth(220)
-        self.section_combobox.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        main_layout.addWidget(self.section_combobox)
-
         self.language_selector.setStyleSheet(combo_style)
         self.language_selector.setMinimumWidth(220)
         self.language_selector.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        # ...existing code...
 
         self.output_table = QTableWidget(self)
         self.output_table.setColumnCount(3)
         self.output_table.setHorizontalHeaderLabels([self.tr("table_column_key"), self.tr("table_column_value"), self.tr("change_the_row")])
         # 修改为PyQt6的EditTrigger
         self.output_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
-        self.output_table.verticalHeader().setVisible(True)  # 显示行号
         vh = self.output_table.verticalHeader()
         if vh is not None:
-            vh.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # 行号右对齐垂直居中
+            vh.setVisible(True)  # 显示行号
+            vh.setDefaultAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             vh.setSectionResizeMode(SectionResizeMode.Fixed)
-            vh.setDefaultSectionSize(32)  # 行高
-            vh.setMinimumWidth(32)        # 行号宽度更紧凑
-            vh.setMaximumWidth(40)        # 限制最大宽度
+            vh.setDefaultSectionSize(32)
+            vh.setMinimumWidth(32)
+            vh.setMaximumWidth(40)
             vh.setStyleSheet("""
                 QHeaderView::section {
                     background: #F7FAFC;
@@ -260,13 +362,18 @@ class GXTViewer(QWidget):
                     border: none;
                     padding-right: 6px;
                     padding-left: 0px;
-                    border-radius: 0px; /* 去除圆角 */
+                    border-radius: 0px;
                 }
             """)
         self.output_table.setShowGrid(False)
         self.output_table.setColumnWidth(0, 150)  # 固定键列宽度
         self.output_table.setColumnWidth(2, 100)  # 操作列宽度
-        self.output_table.verticalHeader().setDefaultSectionSize(32)  # 行高
+        v_header = self.output_table.verticalHeader()
+        if v_header is not None:
+            try:
+                v_header.setDefaultSectionSize(32)
+            except AttributeError as e:
+                print(f"Error setting vertical header size: {e}")
 
         # 表格尺寸策略
         self.output_table.setSizePolicy(
@@ -275,36 +382,91 @@ class GXTViewer(QWidget):
         )
     
         # 滚动性能优化（修复版本）
-        self.output_table.horizontalHeader().setSectionResizeMode(1, SectionResizeMode.Stretch)
+        header = self.output_table.horizontalHeader()
+        if header is not None:
+            try:
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            except AttributeError as e:
+                print(f"Error setting header resize mode: {e}")
+                # Fallback to default behavior
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.output_table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)  # 平滑滚动
         self.output_table.setAlternatingRowColors(True)  # 交替行颜色提升可读性
-        self.output_table.verticalHeader().setDefaultSectionSize(32)  # 原为24
+        v_header = self.output_table.verticalHeader()
+        if v_header is not None:
+            try:
+                v_header.setDefaultSectionSize(32)
+            except AttributeError as e:
+                print(f"Error setting vertical header size: {e}")
         self.output_table.setMinimumHeight(300)
         self.output_table.setStyleSheet("""
+            QTableWidget {
+                border-radius: 12px;
+                border: 1px solid #E2E8F0;
+            }
             QTableWidget::item {
                 padding: 5px;
                 border-bottom: 1px solid #EDF2F7;
             }
         """)
-        main_layout.addWidget(self.output_table)
+        # 将表格添加到右侧内容布局
+        right_content_layout.addWidget(self.output_table)
 
-        # 获取表格的头部
+        # 获取表格的头部并设置列宽
         header = self.output_table.horizontalHeader()
-
-        # 设置列模式：第一列固定，第二列自适应，第三列固定
-        header.setSectionResizeMode(0, SectionResizeMode.Fixed)  # 第一列：固定宽度
-        header.setSectionResizeMode(1, SectionResizeMode.Stretch)  # 第二列：自适应
-        header.setSectionResizeMode(2, SectionResizeMode.Fixed)  # 第三列：固定宽度
-
-        # 设置固定宽度
-        self.output_table.setColumnWidth(0, 100)  # 第一列宽度固定，适合8个字符
-        self.output_table.setColumnWidth(2, 80)  # 第三列宽度固定，适合按钮
+        if header is not None:
+            header.setSectionResizeMode(0, SectionResizeMode.Fixed)
+            header.setSectionResizeMode(1, SectionResizeMode.Stretch)
+            header.setSectionResizeMode(2, SectionResizeMode.Fixed)
+            # 设置固定宽度
+            self.output_table.setColumnWidth(0, 100)  # 第一列宽度固定，适合8个字符
+            self.output_table.setColumnWidth(2, 80)  # 第三列宽度固定，适合按钮
 
         # 第二列宽度会随窗口大小变化
+        # 创建包含搜索框和正则表达式按钮的水平布局
+        search_layout = QHBoxLayout()
         self.search_entry = QLineEdit(self)
         self.search_entry.setPlaceholderText(self.tr("search_placeholder"))
-        self.search_entry.textChanged.connect(self.filter_table)
-        main_layout.addWidget(self.search_entry)
+        # 使用防抖机制而不是直接连接到filter_table
+        self.search_entry.textChanged.connect(self.schedule_search)
+        # 确保搜索框与正则表达式按钮高度一致
+        self.search_entry.setFixedHeight(32)
+        
+        # 创建正则表达式切换按钮
+        self.regex_button = QPushButton(".*", self)
+        self.regex_button.setCheckable(True)
+        self.regex_button.setFixedSize(32, 32)  # 设置固定尺寸为32x32
+        self.regex_button.setToolTip(self.tr("toggle_regex_mode"))
+        self.regex_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #CBD5E0;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 0px;
+            }
+            QPushButton:checked {
+                background-color: #4299E1;
+                color: white;
+                border: 1px solid #4299E1;
+            }
+        """)
+        self.regex_button.clicked.connect(self.toggle_regex_mode)
+        
+        search_layout.addWidget(self.search_entry)
+        search_layout.addWidget(self.regex_button)
+        # 设置布局中的对齐方式，确保垂直居中
+        search_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        
+        # 将搜索框添加到右侧内容布局底部
+        right_content_layout.addLayout(search_layout)
+        
+        # 将右侧内容区域添加到内容布局
+        content_layout.addLayout(right_content_layout, 4)
+        
+        # 将内容布局添加到主布局
+        main_layout.addLayout(content_layout)
 
         self.setLayout(main_layout)
         self.setAcceptDrops(True)
@@ -314,7 +476,7 @@ class GXTViewer(QWidget):
                 background: rgba(255,255,255,0.8);
                 border: 1px solid #CBD5E0;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 4px 8px;  /* 减少垂直内边距以适应32px高度 */
                 selection-background-color: #90CDF4;
             }
             QLineEdit:focus {
@@ -324,8 +486,7 @@ class GXTViewer(QWidget):
         """
         
         # 应用样式到所有输入框
-        #self.search_entry = QLineEdit(self)
-        #self.search_entry.setStyleSheet(lineedit_style)
+        self.search_entry.setStyleSheet(lineedit_style)
         self.gxt_path_entry.setStyleSheet(lineedit_style)
 
         # 安装事件过滤器
@@ -333,7 +494,6 @@ class GXTViewer(QWidget):
         self.gxt_path_entry.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        """处理双击透明度切换和全局快捷键"""
         if event.type() == QtCore.QEvent.Type.MouseButtonDblClick:
             if obj in [self.search_entry, self.gxt_path_entry]:
                 current_style = obj.styleSheet()
@@ -343,12 +503,12 @@ class GXTViewer(QWidget):
                     new_style = current_style.replace("0.95", "0.8")
                 obj.setStyleSheet(new_style)
                 return True
-        # Ctrl+M 打开调试菜单
         if event.type() == QtCore.QEvent.Type.KeyPress:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_M:
-                # 兼容PyQt6 WindowType写法，确保DebugMenuDialog窗口类型正确
-                # 只调用 show_menu，不传递 parent 参数
-                self.debug_menu.show_menu()
+                # 修复：直接调用debug_menu的show_menu方法
+                if hasattr(self, 'debug_menu') and self.debug_menu:
+                    # 忽略IDE的误报，DebugMenu类确实有show_menu方法
+                    self.debug_menu.show_menu()  # type: ignore
                 return True
         return super().eventFilter(obj, event)
 
@@ -377,10 +537,9 @@ class GXTViewer(QWidget):
             self.debug_menu.addAction(action_dummy)
         # 居中弹出菜单
         pos = self.mapToGlobal(self.rect().center())
-        if hasattr(self.debug_menu, "exec"):
+        # 只允许QMenu弹出
+        if isinstance(self.debug_menu, QMenu):
             self.debug_menu.exec(pos)
-        else:
-            self.debug_menu.exec_(pos)
 
     def debug_print_table(self):
         # 打印当前表格内容到控制台
@@ -400,15 +559,15 @@ class GXTViewer(QWidget):
         lang_file_path = os.path.join('languages', selected_lang)
         self.load_language_file(lang_file_path)
         self.update_ui_texts()
-        QMessageBox.information(self, "调试", "语言文件已重载")
+        QMessageBox.information(self, self.tr("debug_title"), self.tr("debug_lang_reloaded"))
 
     def debug_show_gxt_path(self):
         # 显示当前GXT文件路径
-        QMessageBox.information(self, "调试", f"GXT路径: {self.gxt_file_path}")
+        QMessageBox.information(self, self.tr("debug_title"), self.tr("debug_gxt_path", path=self.gxt_file_path))
 
     def debug_show_version(self):
         # 显示窗口标题/版本
-        QMessageBox.information(self, "调试", f"窗口标题: {self.windowTitle()}\n版本: {APP_VERSION}")
+        QMessageBox.information(self, self.tr("debug_title"), self.tr("debug_window_info", title=self.windowTitle(), version=APP_VERSION))
 
     def change_language(self):
         selected_lang = self.language_selector.currentText()
@@ -431,6 +590,9 @@ class GXTViewer(QWidget):
         self.save_gxt_button.setToolTip(self.tr("tooltip_save_gxt_button"))
         self.output_table.setHorizontalHeaderLabels([self.tr("table_column_key"), self.tr("table_column_value"), self.tr("change_the_row")])
         self.search_entry.setPlaceholderText(self.tr("search_placeholder"))
+        self.regex_button.setToolTip(self.tr("toggle_regex_mode"))
+        # 更新侧边栏标题
+        self.sidebar.setTitle(self.tr("section_sidebar_title"))
 
     def convert_using_table(self):
         convert_using_table(self)  # 确保传递完整实例
@@ -447,6 +609,9 @@ class GXTViewer(QWidget):
     def createOutputDir(path: str):
         try:
             os.makedirs(path)
+            # 仅对Debug文件夹设置隐藏属性
+            if "Debug" in path:
+                ctypes.windll.kernel32.SetFileAttributesW(path, 2)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
@@ -546,7 +711,7 @@ class GXTViewer(QWidget):
                     if '=' not in line:
                         error_lines.append(idx + 1)
                 if error_lines:
-                    QMessageBox.critical(self, "TXT格式错误", f"以下行缺少等号(=)：\n{', '.join(map(str, error_lines))}")
+                    QMessageBox.critical(self, self.tr("error_txt_format"), self.tr("error_missing_equals", lines=', '.join(map(str, error_lines))))
                     return
                 self.gxt_file_path = None
                 self.gxt_txt_path = file_path
@@ -577,17 +742,35 @@ class GXTViewer(QWidget):
             self.open_txt_file(file_path)
 
     def save_generated_txt(self):
-        if not self.parsed_content:
+        if self.output_table.rowCount() == 0:
             QMessageBox.warning(self, self.tr("warning_messages"), self.tr("warning_select_and_parse_gxt_first"))
             return
 
-        txt_file_path = QFileDialog.getSaveFileName(self, self.tr("save_as_txt"), os.path.splitext(self.gxt_txt_path)[0], "文本文件 (*.txt)")[0]
+        txt_file_path, _ = QFileDialog.getSaveFileName(self, self.tr("save_as_txt"), os.path.splitext(self.gxt_txt_path or "")[0], "文本文件 (*.txt)")
         if not txt_file_path:
             return
 
         try:
+            content = []
+            current_section = ""
+            
+            for row in range(self.output_table.rowCount()):
+                key_item = self.output_table.item(row, 0)
+                value_item = self.output_table.item(row, 1)
+                
+                if key_item and value_item:
+                    key = key_item.text()
+                    value = value_item.text()
+                    
+                    if key.startswith('[') and key.endswith(']'):
+                        current_section = key
+                        content.append(key)
+                    else:
+                        content.append(f"{key}={value}")
+            
             with open(txt_file_path, 'w', encoding='utf-8') as target_file:
-                target_file.write(self.parsed_content)
+                target_file.write("\n".join(content))
+            
             QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_file_saved", path=txt_file_path))
         except Exception as e:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_saving_file", error=str(e)))
@@ -726,7 +909,7 @@ class GXTViewer(QWidget):
             'VC': os.path.join(debug_dir, "gtavc.txt"),
             'SA': os.path.join(debug_dir, "gtasa.txt"),
             'IV': os.path.join(debug_dir, "gta4.txt")
-        }.get(version)
+        }.get(str(version))
 
         if not output_txt_path:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_unknown_gxt_version"))
@@ -746,11 +929,11 @@ class GXTViewer(QWidget):
                     output_file.write(line)  # 写入到输出文件
 
         builder_exe = {
-            'III': 'LCGXTBuilder.exe',  # GTA3版本使用LCGXTBuilder.exe
-            'VC': 'VCGXTBuilder.exe',   # GTAVC版本使用VCGXTBuilder.exe
-            'SA': 'SAGXTBuilder.exe',   # GTASA版本使用SAGXTBuilder.exe
-            'IV': 'IVGXTBuilder.exe'    # GTAIV版本使用IVGXTBuilder.exe
-        }.get(version)  # 根据版本选择对应的构建器
+            'III': 'LCGXT.py',  # GTA3版本使用LCGXT.py
+            'VC': 'VCGXT.py',   # GTAVC版本使用VCGXT.py
+            'SA': 'SAGXT.py',   # GTASA版本使用SAGXT.py
+            'IV': 'IVGXT.py'    # GTAIV版本使用IVGXT.py
+        }.get(str(version))  # 根据版本选择对应的构建器
 
         if not builder_exe:
             # 如果没有找到对应的构建器，弹出错误提示
@@ -767,7 +950,7 @@ class GXTViewer(QWidget):
         shutil.copy(builder_path, debug_builder_path)
 
         try:
-            subprocess.run([debug_builder_path, output_txt_path], check=True, cwd=debug_dir)
+            subprocess.run(["python", debug_builder_path, output_txt_path], check=True, cwd=debug_dir)
         except subprocess.CalledProcessError as e:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_running_builder", error=str(e)))
             return
@@ -778,11 +961,17 @@ class GXTViewer(QWidget):
             # 保存到txt或gxt同目录
             if self.gxt_file_path:
                 base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+                # 备份原始GXT文件
+                backup_gxt_path = os.path.join(gxt_dir, f"{base_name}_backup.gxt")
+                shutil.copy(self.gxt_file_path, backup_gxt_path)
+                # 替换原始GXT文件
+                shutil.copy(generated_gxt_path, self.gxt_file_path)
+                QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_file_saved", path=self.gxt_file_path, backup_path=backup_gxt_path))
             else:
-                base_name = os.path.splitext(os.path.basename(self.gxt_txt_path))[0]
-            edited_gxt_path = os.path.join(gxt_dir, f"{base_name}_Edited.gxt")
-            shutil.copy(generated_gxt_path, edited_gxt_path)
-            QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_gxt_saved", path=edited_gxt_path))
+                base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
+                edited_gxt_path = os.path.join(gxt_dir, f"{base_name}_Edited.gxt")
+                shutil.copy(generated_gxt_path, edited_gxt_path)
+                QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_gxt_saved", path=edited_gxt_path))
         else:
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_gxt_not_generated"))
 
@@ -822,7 +1011,7 @@ class GXTViewer(QWidget):
 
         layout.addWidget(add_btn)
         layout.addWidget(del_btn)
-        layout.setAlignment(QtCore.Qt.AlignCenter)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
         try:
             add_btn.clicked.disconnect()
@@ -839,17 +1028,19 @@ class GXTViewer(QWidget):
 
     def handle_add_button_clicked(self):
         sender = self.sender()
-        parent = getattr(sender, "parentWidget", None)
-        if callable(parent):
-            row_position = self.output_table.indexAt(parent().pos()).row()
-            self.safe_add_row(row_position)
+        if sender is not None:
+            pw = sender.parent()
+            if isinstance(pw, QWidget):  # 确保是 QWidget 实例
+                row_position = self.output_table.indexAt(pw.pos()).row()
+                self.safe_add_row(row_position)
 
     def handle_delete_button_clicked(self):
         sender = self.sender()
-        parent = getattr(sender, "parentWidget", None)
-        if callable(parent):
-            row_position = self.output_table.indexAt(parent().pos()).row()
-            self.safe_delete_row(row_position)
+        if sender is not None:
+            pw = sender.parent()
+            if isinstance(pw, QWidget):  # 确保是 QWidget 实例
+                row_position = self.output_table.indexAt(pw.pos()).row()
+                self.safe_delete_row(row_position)
 
     def highlight_selected_section(self, section_name):
         # Find the section content
@@ -873,24 +1064,182 @@ class GXTViewer(QWidget):
             self.gxt_path_entry.setFont(font)
             self.gxt_path_entry.setText(content)
 
-    def filter_table(self, text):
-        text = text.lower()
-        for row in range(self.output_table.rowCount()):
-            key_item = self.output_table.item(row, 0)
-            value_item = self.output_table.item(row, 1)
-            match = False
-            if key_item and value_item:
-                key = key_item.text().lower()
-                value = value_item.text().lower()
-                match = text in key or text in value
-            self.output_table.setRowHidden(row, not match)
-
-    def scroll_to_section(self, idx, row_section_map):
-        """根据下拉栏的选择定位到对应的表格行。"""
-        section_name = self.section_combobox.itemText(idx)
+    def on_sidebar_button_clicked(self, section_name, row_section_map):
+        """处理侧边栏按钮点击事件"""
+        # 取消其他按钮的选中状态
+        for button, name in self.section_buttons:
+            if name != section_name:
+                button.setChecked(False)
+            else:
+                button.setChecked(True)
+        
+        # 滚动到对应的表格行
         if section_name in row_section_map:
             row = row_section_map[section_name]
             self.output_table.scrollToItem(self.output_table.item(row, 0), QAbstractItemView.ScrollHint.PositionAtTop)
+            # 高亮显示该行
+            self.output_table.selectRow(row)
+
+    def create_sidebar_buttons(self, section_names, row_section_map):
+        """创建侧边栏按钮"""
+        # 清除现有的侧边栏按钮
+        for i in reversed(range(self.sidebar_layout.count())):
+            item = self.sidebar_layout.itemAt(i)
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+        
+        # 清空按钮引用列表
+        self.section_buttons = []
+        
+        # 为每个section创建按钮
+        for section_name in section_names:
+            button = QPushButton(section_name)
+            button.setCheckable(True)
+            button.setStyleSheet("""
+                QPushButton {
+                    text-align: left;
+                    padding: 8px 12px;
+                    border: none;
+                    border-radius: 6px;
+                    background: transparent;
+                    color: #4A5568;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background: #EBF8FF;
+                }
+                QPushButton:checked {
+                    background: #4299E1;
+                    color: white;
+                }
+            """)
+            button.clicked.connect(lambda checked, name=section_name: self.on_sidebar_button_clicked(name, row_section_map))
+            self.sidebar_layout.addWidget(button)
+            self.section_buttons.append((button, section_name))
+
+    def schedule_search(self, text):
+        """调度搜索，使用防抖机制"""
+        # 每次文本变化时重启定时器
+        self.search_timer.stop()
+        self.search_timer.start(300)  # 300毫秒防抖延迟
+
+    def perform_search(self):
+        """执行实际的搜索操作"""
+        search_text = self.search_entry.text()
+        self.filter_table(search_text)
+
+    def toggle_regex_mode(self):
+        """切换正则表达式模式"""
+        self.regex_mode = self.regex_button.isChecked()
+        if self.regex_mode:
+            self.regex_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4299E1;
+                    color: white;
+                    border: 1px solid #4299E1;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 0px;
+                }
+            """)
+        else:
+            self.regex_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f0f0f0;
+                    border: 1px solid #CBD5E0;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    padding: 0px;
+                }
+                QPushButton:checked {
+                    background-color: #4299E1;
+                    color: white;
+                    border: 1px solid #4299E1;
+                }
+            """)
+        # 重新执行搜索以应用新模式
+        self.schedule_search(self.search_entry.text())
+
+    def filter_table(self, text):
+        """优化的表格过滤功能"""
+        # 如果搜索文本为空，显示所有行
+        if not text:
+            for row in range(self.output_table.rowCount()):
+                self.output_table.setRowHidden(row, False)
+            return
+
+        # 正则表达式模式
+        if self.regex_mode:
+            try:
+                pattern = re.compile(text, re.IGNORECASE)
+                regex_valid = True
+            except re.error:
+                regex_valid = False
+        
+        # 检查缓存 - 为正则表达式模式和普通模式分别缓存
+        cache_key = (text, self.regex_mode)
+        if cache_key in self.search_cache:
+            # 使用缓存的结果
+            cached_result = self.search_cache[cache_key]
+            for row, hidden in cached_result.items():
+                self.output_table.setRowHidden(row, hidden)
+            return
+
+        # 构建表格数据缓存（如果尚未构建）
+        if not self.table_data_cache or len(self.table_data_cache) != self.output_table.rowCount():
+            self.table_data_cache = []
+            for row in range(self.output_table.rowCount()):
+                key_item = self.output_table.item(row, 0)
+                value_item = self.output_table.item(row, 1)
+                key_text = key_item.text() if key_item else ""
+                value_text = value_item.text() if value_item else ""
+                self.table_data_cache.append((key_text, value_text))
+
+        # 执行搜索并逐个显示结果
+        result_cache = {}
+        
+        if self.regex_mode and regex_valid:
+            # 正则表达式搜索
+            for row, (key_text, value_text) in enumerate(self.table_data_cache):
+                try:
+                    match = (pattern.search(key_text) is not None or 
+                            pattern.search(value_text) is not None)
+                except re.error:
+                    match = False
+                hidden = not match
+                result_cache[row] = hidden
+                self.output_table.setRowHidden(row, hidden)
+                # 处理事件队列，使界面更新更流畅
+                if row % 50 == 0:  # 每50行处理一次事件
+                    QApplication.processEvents()
+        elif self.regex_mode and not regex_valid:
+            # 正则表达式无效，隐藏所有行
+            for row in range(self.output_table.rowCount()):
+                result_cache[row] = True
+                self.output_table.setRowHidden(row, True)
+                # 处理事件队列，使界面更新更流畅
+                if row % 50 == 0:  # 每50行处理一次事件
+                    QApplication.processEvents()
+        else:
+            # 普通文本搜索
+            text_lower = text.lower()
+            for row, (key_text, value_text) in enumerate(self.table_data_cache):
+                key_text_lower = key_text.lower()
+                value_text_lower = value_text.lower()
+                match = text_lower in key_text_lower or text_lower in value_text_lower
+                hidden = not match
+                result_cache[row] = hidden
+                self.output_table.setRowHidden(row, hidden)
+                # 处理事件队列，使界面更新更流畅
+                if row % 50 == 0:  # 每50行处理一次事件
+                    QApplication.processEvents()
+
+        # 更新缓存（限制缓存大小）
+        if len(self.search_cache) > 50:  # 限制缓存大小为50个搜索词
+            self.search_cache.clear()
+        self.search_cache[cache_key] = result_cache
 
     def safe_add_row(self, row):
         """安全地在指定行后插入一行（用于表格按钮）"""
@@ -913,6 +1262,26 @@ class GXTViewer(QWidget):
         self.output_table.setUpdatesEnabled(False)
         self.output_table.blockSignals(True)
         self.output_table.clearContents()
+
+        # 清空搜索缓存，因为表格内容已更改
+        self.search_cache.clear()
+        self.table_data_cache = []
+
+        # 清空搜索缓存，当表格内容更改时同时清除正则模式下的缓存
+        self.regex_mode = False
+        self.regex_button.setChecked(False)
+        self.regex_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #c0c0c0;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #4299E1;
+                color: white;
+            }
+        """)
 
         # 预处理所有行，避免多次split和判断
         lines = content.split('\n')
@@ -939,20 +1308,18 @@ class GXTViewer(QWidget):
         row_count = len(valid_lines)
         self.output_table.setRowCount(row_count)
 
-        items0 = [None] * row_count
-        items1 = [None] * row_count
 
+        # 用 setItem 代替 __setitem__，避免类型错误
         for idx, (typ, line) in enumerate(valid_lines):
             if typ == 'section':
                 section = line[1:-1]
                 append_section(section)
-                row_section_map[section] = table_row
+                row_section_map[section] = idx
                 item = QTableWidgetItem(line)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 item.setFont(font_bold)
-                items0[table_row] = item
-                items1[table_row] = QTableWidgetItem("")
-                table_row += 1
+                self.output_table.setItem(idx, 0, item)
+                self.output_table.setItem(idx, 1, QTableWidgetItem(""))
             elif typ == 'kv':
                 eq = line.find('=')
                 key = line[:eq].strip()
@@ -960,31 +1327,24 @@ class GXTViewer(QWidget):
                 key_item = QTableWidgetItem(key)
                 value_item = QTableWidgetItem(value)
                 key_item.setFont(font_normal)
-                value_item.setFont(font_normal)
-                items0[table_row] = key_item
-                items1[table_row] = value_item
-                table_row += 1
+                value_item.setFont(font_bold)  # 将内容列设置为粗体
+                self.output_table.setItem(idx, 0, key_item)
+                self.output_table.setItem(idx, 1, value_item)
 
-        for i in range(table_row):
-            if items0[i] is not None:
-                self.output_table.setItem(i, 0, items0[i])
-            if items1[i] is not None:
-                self.output_table.setItem(i, 1, items1[i])
-
-        self.output_table.setRowCount(table_row)
+        self.output_table.setRowCount(row_count)
 
         # 设置行号
-        for i in range(table_row):
+        for i in range(row_count):
             self.output_table.setVerticalHeaderItem(i, QTableWidgetItem(str(i + 1)))
 
-        self.section_combobox.blockSignals(True)
-        self.section_combobox.clear()
-        self.section_combobox.addItems(section_names)
-        self.section_combobox.blockSignals(False)
+        # 创建侧边栏按钮
+        self.create_sidebar_buttons(section_names, row_section_map)
 
         self.output_table.blockSignals(False)
         self.output_table.setUpdatesEnabled(True)
-        self.output_table.viewport().update()
+        viewport = self.output_table.viewport()
+        if viewport is not None:
+            viewport.update()
 
         # --- 优化：鼠标悬停显示按钮 ---
         for r in range(self.output_table.rowCount()):
@@ -1067,18 +1427,198 @@ class GXTViewer(QWidget):
                     return False
                 return super().eventFilter(obj, event)
 
-        if hasattr(self, "_table_hover_filter") and self._table_hover_filter:
-            if self.output_table.viewport() is not None:
-                self.output_table.viewport().removeEventFilter(self._table_hover_filter)
+        viewport = self.output_table.viewport()
+        if hasattr(self, "_table_hover_filter") and self._table_hover_filter and viewport is not None:
+            viewport.removeEventFilter(self._table_hover_filter)
         self._table_hover_filter = TableHoverEventFilter(self.output_table, None, get_btn_widget)
-        if self.output_table.viewport() is not None:
-            self.output_table.viewport().installEventFilter(self._table_hover_filter)
+        if viewport is not None:
+            viewport.installEventFilter(self._table_hover_filter)
         self.output_table.setMouseTracking(True)
         # --- 结束 ---
 
-        self.section_combobox.currentIndexChanged.connect(
-            lambda idx: self.scroll_to_section(idx, row_section_map)
-        )
+        # 移除对section_combobox的引用，因为我们现在使用侧边栏导航
+        # self.section_combobox.currentIndexChanged.connect(
+        #     lambda idx: self.scroll_to_section(idx, row_section_map)
+        # )
+
+    def smart_translate_table(self):
+        """智能翻译当前表格内容，带进度反馈，完全异步，主线程不阻塞"""
+        # 计算实际可翻译行数（排除章节标记行）
+        translatable_rows = 0
+        for row in range(self.output_table.rowCount()):
+            key_item = self.output_table.item(row, 0)
+            if key_item and not (key_item.text().startswith('[') and key_item.text().endswith(']')):
+                translatable_rows += 1
+
+        if translatable_rows == 0:
+            QMessageBox.information(self, self.tr("info_title"), self.tr("info_no_translatable_content"))
+            return
+
+        # 检查用户是否输入了KEY
+        key, ok = QtWidgets.QInputDialog.getText(self, self.tr("input_key_title"), self.tr("input_key_prompt"))
+        if not ok or not key:
+            QMessageBox.warning(self, self.tr("warning_title"), self.tr("warning_input_valid_key"))
+            return
+
+        dlg = TranslationProgressDialog(translatable_rows, self)
+        dlg.set_progress(0, self.tr("translate_preparing", translatable_rows=translatable_rows))
+        dlg.show()
+        QApplication.processEvents()
+
+        worker = TranslationWorker(self, key)
+        
+        def on_progress(current, total, msg):
+            # 直接使用终端输出的原始进度数据
+            dlg.set_progress(current, msg)
+            QtCore.QCoreApplication.processEvents()
+            
+        def on_finished():
+            # 仅当终端输出显示完成时才更新进度
+            if dlg.progress.value() == translatable_rows:
+                dlg.set_progress(translatable_rows, self.tr("translate_complete"))
+                self.update_parsed_content_from_table()
+                QtCore.QTimer.singleShot(800, dlg.accept)
+            else:
+                # 如果进度未完成，等待终端输出更新
+                QtCore.QTimer.singleShot(500, on_finished)
+            
+        def on_error(msg):
+            # 保持当前进度状态，仅更新错误信息
+            dlg.set_progress(dlg.progress.value(), self.tr("translate_interrupted", msg=msg))
+            QtCore.QTimer.singleShot(1200, dlg.accept)
+            
+        worker.progress.connect(on_progress)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+
+        def on_cancel():
+            worker.cancel()
+        try:
+            dlg.cancel_btn.clicked.disconnect()
+        except Exception:
+            pass
+        dlg.cancel_btn.clicked.connect(on_cancel)
+        dlg.cancel_btn.clicked.connect(dlg.reject)
+
+        worker.start()
+
+    def update_parsed_content_from_table(self):
+        """从表格内容更新 parsed_content 变量"""
+        content_lines = []
+        current_section = ""
+        
+        for row in range(self.output_table.rowCount()):
+            key_item = self.output_table.item(row, 0)
+            value_item = self.output_table.item(row, 1)
+            
+            if key_item and value_item:
+                key = key_item.text()
+                value = value_item.text()
+                
+                if key.startswith('[') and key.endswith(']'):
+                    current_section = key
+                    content_lines.append(key)
+                else:
+                    content_lines.append(f"{key}={value}")
+        
+        self.parsed_content = "\n".join(content_lines)
+
+    def closeEvent(self, event):
+        """覆盖关闭事件，确保程序完全退出"""
+        QApplication.quit()
+
+class TranslationWorker(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, main_window, key=None):
+        super().__init__()
+        self.main_window = main_window
+        self.key = key
+        self._cancelled = False
+
+    def run(self):
+        try:
+            import logging
+            logger = logging.getLogger("Translator")
+            logger.info("TranslationWorker开始运行")
+            
+            from master.smart_translate import smart_translate
+            def progress_callback(current, total, msg=""):
+                logger.info(f"进度更新: {current}/{total} - {msg}")
+                self.progress.emit(current, total, msg)
+                if self._cancelled:
+                    logger.warning("翻译任务被取消")
+                    raise Exception(self.main_window.tr("translation_cancelled"))
+            
+            # 验证KEY
+            logger.info("验证API密钥")
+            if not self.key or len(self.key) < 8:
+                logger.error("API密钥无效")
+                raise Exception(self.main_window.tr("invalid_key_error"))
+            
+            # 记录日志
+            logger.info("记录翻译开始日志")
+            self.progress.emit(0, 100, self.main_window.tr("translation_start_log", api_key=self.key))
+            logger.info("调用smart_translate函数")
+            smart_translate(self.main_window, progress_callback=progress_callback, key=self.key)
+            logger.info("翻译任务完成")
+            self.finished.emit()
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("Translator")
+            logger.error(f"TranslationWorker发生异常: {e}")
+            self.error.emit(str(e))
+
+    def cancel(self):
+        self._cancelled = True
+
+class TranslationProgressDialog(QDialog):
+    def __init__(self, total, parent=None):
+        super().__init__(parent)
+        self._tr_func = parent.tr if parent and hasattr(parent, 'tr') else lambda key, **kwargs: key
+        self.setWindowTitle(self._tr_func("smart_translate_progress"))
+        self.setModal(True)
+        self.setMinimumWidth(600)
+        layout = QVBoxLayout(self)
+        
+        # 进度条和标签
+        self.label = QLabel(self._tr_func("translate_preparing_progress"), self)
+        self.progress = QtWidgets.QProgressBar(self)
+        self.progress.setRange(0, total)
+        layout.addWidget(self.label)
+        layout.addWidget(self.progress)
+        
+        # 日志显示区域
+        self.log_area = QTextEdit(self)
+        self.log_area.setReadOnly(True)
+        self.log_area.setStyleSheet("font-family: Consolas, 'Courier New', monospace; font-size: 12px;")
+        layout.addWidget(self.log_area)
+        
+        # 取消按钮
+        self.cancel_btn = QPushButton(self._tr_func("cancel_button_text"), self)
+        self.cancel_btn.clicked.connect(self.reject)
+        layout.addWidget(self.cancel_btn, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
+        
+        self._cancelled = False
+
+    def set_progress(self, value, text=None):
+        self.progress.setValue(value)
+        if text:
+            self.label.setText(text)
+            self.log_area.append(text)  # 将日志信息添加到日志区域
+        QApplication.processEvents()
+
+    def cancelled(self):
+        return self._cancelled or self.result() == QDialog.DialogCode.Rejected
+
+    def reject(self):
+        import logging
+        logger = logging.getLogger("Translator")
+        logger.info("用户点击取消按钮")
+        self._cancelled = True
+        super().reject()
 
 def main():
     def excepthook(exc_type, exc_value, exc_tb):
@@ -1110,7 +1650,7 @@ def main():
             font: 600 24px 'Segoe UI'; /* 加粗大标题 */
             color: #2B6CB0;        /* 品牌主色-深蓝 */
             padding: 20px 0;       /* 上下留白增强呼吸感 */
-            qproperty-alignment: AlignCenter; /* 居中显示 */
+            qproperty-alignment: 'AlignCenter'; /* 居中显示 */
         }
 
         /* ========== 功能按钮组容器 ==========
@@ -1198,14 +1738,12 @@ def main():
             border-radius: 8px;
             padding: 8px;
             color: #222;
-            /* 兼容性：部分平台支持 backdrop-filter */
-            backdrop-filter: blur(6px);
+
         }
         QTableWidget QLineEdit:focus {
             background: rgba(255,255,255,0.85);
             border: 2px solid #3182CE;
             color: #111;
-            backdrop-filter: blur(10px);
         }
 
         /* ========== 下拉菜单 ========== */
@@ -1268,11 +1806,6 @@ def main():
             background: none;
         }
         /* ========== 操作按钮 ==========
-            /* 确保按钮文字居中 */
-        QPushButton {
-            qproperty-alignment: AlignCenter;
-        }
-        
         /* 移除单元格聚焦边框 */
         QTableWidget::item:focus {
             border: none;

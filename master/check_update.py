@@ -13,11 +13,21 @@ class UpdateChecker(QObject):
         self.current_version = current_version
         self.manager = QNetworkAccessManager(self)  # 关键！必须设置父对象
         self.manager.finished.connect(self.handle_response)
+        self.fallback_url = "https://raw.githubusercontent.com/Lzh102938/III.VC.SAGXTExtracter/refs/heads/main/update.json"
+        self.using_fallback = False
 
     def check(self):
         """发起更新检查请求"""
-        url = QUrl("https://raw.githubusercontent.com/Lzh102938/III.VC.SAGXTExtracter/refs/heads/main/update.json")
+        url = QUrl("http://bmpchs.asia/gxtviewer/update/update.json")
         request = QNetworkRequest(url)
+        self.using_fallback = False
+        self.manager.get(request)
+
+    def check_fallback(self):
+        """发起备用更新检查请求"""
+        url = QUrl(self.fallback_url)
+        request = QNetworkRequest(url)
+        self.using_fallback = True
         self.manager.get(request)
 
     def handle_response(self, reply):
@@ -28,12 +38,22 @@ class UpdateChecker(QObject):
 
             # 优先处理网络错误
             if err != QNetworkReply.NetworkError.NoError:
-                self.error_occurred.emit(reply.errorString())
-                return
+                # 如果主更新源失败且还未尝试备用源，则尝试备用源
+                if not self.using_fallback:
+                    self.check_fallback()
+                    return
+                else:
+                    self.error_occurred.emit(reply.errorString())
+                    return
 
             if status != 200:
-                self.error_occurred.emit(f"HTTP 错误，状态码：{status}")
-                return
+                # 如果主更新源失败且还未尝试备用源，则尝试备用源
+                if not self.using_fallback:
+                    self.check_fallback()
+                    return
+                else:
+                    self.error_occurred.emit(f"HTTP 错误，状态码：{status}")
+                    return
 
             raw = reply.readAll().data().decode('utf-8')
             info = json.loads(raw)
@@ -45,7 +65,12 @@ class UpdateChecker(QObject):
                 self.update_available.emit(remote_version, release_url, message)
 
         except Exception as e:
-            self.error_occurred.emit(f"更新检查内部异常：{e}")
+            # 如果主更新源失败且还未尝试备用源，则尝试备用源
+            if not self.using_fallback:
+                self.check_fallback()
+                return
+            else:
+                self.error_occurred.emit(f"更新检查内部异常：{e}")
 
         finally:
             reply.deleteLater()
