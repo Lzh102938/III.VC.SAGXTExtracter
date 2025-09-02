@@ -3,6 +3,10 @@ import errno
 import gta.gxt
 import ctypes
 from PyQt6 import QtWidgets, QtGui, QtCore
+from builder.IVGXT import *
+from builder.LCGXT import *
+from builder.SAGXT import *
+from builder.VCGXT import *
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGroupBox, QFileDialog,
     QMessageBox, QTableWidget, QTableWidgetItem, QLineEdit, QWidget, QComboBox, QAbstractItemView, QDialog, QHeaderView, QSizePolicy,
@@ -48,7 +52,7 @@ def show_copyable_error(parent, title, text):
     dlg.setModal(True)
     dlg.exec()
 
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.3.1"
 myappid = "III.VC.SAGXTExtracter"
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
@@ -940,40 +944,91 @@ class GXTViewer(QWidget):
             QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_unknown_gxt_version"))
             return
 
-        builder_path = os.path.join("builder", builder_exe)
-        debug_builder_path = os.path.join(debug_dir, builder_exe)
-
-        if not os.path.isfile(builder_path):
-            QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_builder_exe_not_found", exe=builder_exe))
-            return
-
-        shutil.copy(builder_path, debug_builder_path)
-
-        try:
-            subprocess.run(["python", debug_builder_path, output_txt_path], check=True, cwd=debug_dir)
-        except subprocess.CalledProcessError as e:
-            QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_running_builder", error=str(e)))
-            return
-
-        gxt_files = [f for f in os.listdir(debug_dir) if f.endswith('.gxt')]
-        if gxt_files:
-            generated_gxt_path = os.path.join(debug_dir, gxt_files[0])
-            # 保存到txt或gxt同目录
+        # 根据版本选择对应的模块
+        if version == "III":
+            from builder.LCGXT import LCGXT
+            generator = LCGXT()
+            if not generator.load_text(output_txt_path):
+                QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_loading_text"))
+                return
+            # 直接生成最终GXT文件
             if self.gxt_file_path:
                 base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
-                # 备份原始GXT文件
-                backup_gxt_path = os.path.join(gxt_dir, f"{base_name}_backup.gxt")
-                shutil.copy(self.gxt_file_path, backup_gxt_path)
-                # 替换原始GXT文件
-                shutil.copy(generated_gxt_path, self.gxt_file_path)
-                QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_file_saved", path=self.gxt_file_path, backup_path=backup_gxt_path))
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
             else:
                 base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
-                edited_gxt_path = os.path.join(gxt_dir, f"{base_name}_Edited.gxt")
-                shutil.copy(generated_gxt_path, edited_gxt_path)
-                QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_gxt_saved", path=edited_gxt_path))
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            generator.save_as_gxt(final_gxt_path)
+            generated_gxt_path = final_gxt_path
+        elif version == "VC":
+            from builder.VCGXT import VCGXT
+            generator = VCGXT()
+            if not generator.LoadText(output_txt_path):
+                QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_loading_text"))
+                return
+            # 直接生成最终GXT文件
+            if self.gxt_file_path:
+                base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            else:
+                base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            generator.SaveAsGXT(final_gxt_path)
+            generated_gxt_path = final_gxt_path
+        elif version == "SA":
+            from builder.SAGXT import SAGXT
+            generator = SAGXT()
+            if not generator.load_text(output_txt_path):
+                QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_loading_text"))
+                return
+            # 直接生成最终GXT文件
+            if self.gxt_file_path:
+                base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            else:
+                base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
+                final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            generator.save_as_gxt(final_gxt_path)
+            generated_gxt_path = final_gxt_path
+        elif version == "IV":
+            from builder.IVGXT import generate_gxt
+            try:
+                # 直接生成最终GXT文件
+                if self.gxt_file_path:
+                    base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+                    final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+                else:
+                    base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
+                    final_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+                generate_gxt(output_txt_path, final_gxt_path)
+                generated_gxt_path = final_gxt_path
+            except Exception as e:
+                QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_running_builder", error=str(e)))
+                return
         else:
-            QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_gxt_not_generated"))
+            QMessageBox.critical(self, self.tr("error_messages"), self.tr("error_unknown_gxt_version"))
+            return
+
+        # 保存到txt或gxt同目录
+        if self.gxt_file_path:
+            base_name = os.path.splitext(os.path.basename(self.gxt_file_path))[0]
+            # 备份原始GXT文件
+            backup_gxt_path = os.path.join(gxt_dir, f"{base_name}_backup.gxt")
+            shutil.copy(self.gxt_file_path, backup_gxt_path)
+            # 替换原始GXT文件（如果生成的文件和目标文件不是同一个文件）
+            try:
+                if not os.path.samefile(generated_gxt_path, self.gxt_file_path):
+                    shutil.copy(generated_gxt_path, self.gxt_file_path)
+            except FileNotFoundError:
+                # 如果文件不存在，则直接复制
+                shutil.copy(generated_gxt_path, self.gxt_file_path)
+            QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_file_saved", path=self.gxt_file_path, backup_path=backup_gxt_path))
+        else:
+            base_name = os.path.splitext(os.path.basename(self.gxt_txt_path or ""))[0]
+            # 生成同名GXT文件并备份原始文件（如果存在）
+            new_gxt_path = os.path.join(gxt_dir, f"{base_name}.gxt")
+            # 注意：这里不需要复制，因为文件已经直接生成在目标位置
+            QMessageBox.information(self, self.tr("prompt_messages"), self.tr("info_gxt_saved", path=new_gxt_path))
 
     def add_row_buttons(self, row):
         widget = QWidget()

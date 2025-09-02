@@ -1,9 +1,13 @@
 import re
 import struct
+import os
 
 def generate_gxt(input_file, output_file):
     tables = {}
-    # 1. 读取输入文本，解析表结构
+    # 1. 检查文件是否存在
+    if not os.path.isfile(input_file):
+        raise FileNotFoundError(f"输入文件 '{input_file}' 不存在")
+    # 2. 读取输入文本，解析表结构
     with open(input_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
@@ -105,4 +109,4 @@ def generate_gxt(input_file, output_file):
 
 
 # 调用示例
-generate_gxt('gta4.txt', 'chinese.gxt')
+# generate_gxt('gta4.txt', 'chinese.gxt')  # 注释掉硬编码的调用示例
