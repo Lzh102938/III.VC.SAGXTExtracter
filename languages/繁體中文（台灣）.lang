@@ -1,0 +1,131 @@
+# 主視窗
+window_title=GTAmod中文組 - GXT編輯器
+browse_button_text=📄 瀏覽GXT
+convert_button_text=🔄 代碼表轉換
+save_button_text=💾 儲存文字
+clear_button_text=✨ 智慧翻譯
+table_column_key=鍵值
+table_column_value=內容
+change_the_row=操作
+title_version=GTAmod中文組 - GXT編輯器 - GXT版本：
+table_mount=掛載代碼表
+table_unmount=卸載代碼表
+
+# 側邊欄
+section_sidebar_title=表格導覽
+
+# 工具提示
+tooltip_title=關於工具
+tooltip_browse_button=選擇並解析GXT
+tooltip_convert_button=將原密文二次解析
+tooltip_save_button=另存為 TXT
+tooltip_clear_button=清除歷史表格內容
+tooltip_save_gxt_button=儲存並建構 GXT
+select_gxt_file=選擇GXT檔案
+select_conversion_table=選擇轉換表檔案
+info_table_mounted=成功掛載代碼表
+
+# 彈窗資訊
+error_dialog_close_button=關閉
+# 從III.VC.SAGXTExtracter.pyw提取的文本
+debug_print_table=列印目前表格內容
+debug_reload_lang=重新載入語言檔
+debug_show_gxt_path=顯示目前GXT路徑
+debug_show_version=顯示視窗標題/版本
+debug_dummy_function=（預留功能）
+translate_no_content=沒有可翻譯的內容。
+translate_invalid_key=請輸入有效的 KEY！
+translate_preparing=準備翻譯……（共 {translatable_rows} 行）
+translate_complete=翻譯完成！
+translate_interrupted=已中斷：{msg}
+
+# 智慧翻譯對話框
+smart_translate_progress=智慧翻譯進度
+translate_preparing_progress=正在翻譯……
+cancel_button_text=取消
+
+# 智慧翻譯輸入框
+input_key_title=輸入 DeepSeek API 金鑰
+input_key_prompt=請輸入 DeepSeek API 金鑰：
+
+# 智慧翻譯錯誤提示
+translation_cancelled=使用者取消翻譯
+invalid_key_error=無效的金鑰，請輸入至少 8 個字元的金鑰！
+translation_start_log=開始翻譯，使用金鑰：{api_key}
+
+# 背景設定
+background_settings_title=背景設定
+background_settings_tooltip=設定主介面背景圖片
+
+# 正則表示式搜尋
+search_placeholder=輸入關鍵字搜尋...
+search_regex_placeholder=輸入正則表示式...
+tooltip_regex_button=切換正則表示式模式
+error_invalid_regex=無效的正則表示式！
+
+# 彈窗訊息
+debug_title=除錯
+debug_lang_reloaded=語言檔已重新載入
+debug_gxt_path=GXT 路徑：{path}
+debug_window_info=視窗標題：{title}\n版本：{version}
+error_txt_format=TXT 格式錯誤
+error_missing_equals=以下行缺少等號(=)：\n{lines}
+info_title=提示
+warning_title=警告
+info_no_translatable_content=沒有可翻譯的內容。
+warning_input_valid_key=請輸入有效的 KEY！
+translate_prompt=你是專業的翻譯助理。使用者會提供一組需要翻譯的文字，請僅回傳翻譯後的中文文字，不要加入任何額外說明。保持文字原始格式不變。
+translate_batch_prompt=請將以下文字批次翻譯為中文，直接回傳翻譯結果列表（不要加入任何說明或標記）：\n{contents}
+error_result_count_mismatch=回傳結果數量不相符
+progress_translation_complete=翻譯完成
+info_translation_complete=共翻譯 {total} 行，已自動填入表格。
+
+error_unknown_gxt_version=未知的 GXT 版本！
+success_recognized_gxt_version=成功識別 GXT 版本：{version}
+error_opening_gxt_file=開啟 GXT 檔案時發生錯誤：{error}
+error_invalid_gxt_file_path=無效的 GXT 檔案路徑！
+warning_select_and_parse_gxt_first=請先選擇並解析 GXT 檔案！
+error_saving_file=儲存檔案時發生錯誤：{error}
+info_file_saved=檔案已儲存至 {path}
+warning_no_conversion_table_selected=未選擇轉換表檔案！
+info_conversion_complete=文字轉換完成並儲存至 {gxt_txt_path}
+error_messages=錯誤
+prompt_messages=提示
+warning_messages=警告
+gta3_version=GTA3
+gtavc_version=GTAVC
+gtasa_version=GTASA
+gtaiv_version=GTAIV
+auto_detected_version_msg=自動偵測的版本為：{auto_detected_version}\n請選擇要生成的 GXT 版本：
+select_gxt_version_title=選擇 GXT 版本
+
+# 寫入文字
+save_gxt_button_text=📥 儲存 GXT
+tooltip_save_gxt_button=儲存編輯後的 GXT 檔案
+error_builder_exe_not_found=建構工具 {exe} 未找到
+error_running_builder=執行建構工具時發生錯誤：{error}
+info_gxt_saved=GXT 檔案已儲存至 {path}
+error_gxt_not_generated=產生的 GXT 檔案未找到
+search_placeholder=輸入文字或啟用正則表示式以檢索…
+toggle_regex_mode=切換正則表示式模式
+
+# 檢查更新
+smart_translate_content=智慧翻譯目前表格內容，帶進度回饋，完全非同步，主線程不阻塞
+smart_translate_progress=智慧翻譯進度
+
+update_available_title=發現新版本
+update_available_msg=偵測到新版本 {new_version}\n目前版本為 {current_version}，是否前往下載？
+update_yes_button=立即更新
+update_no_button=稍後再說
+
+# 選單文字
+change_language_text=🌐 變更語言
+set_background_text=🖼️ 設定背景
+set_value_font=🅰️ 字體設定
+about_action_text=❓ 關於
+open_debug_menu=🐞 除錯選單（Ctrl+M）
+
+# 關於視窗
+about_window_title=關於
+close_button_text=關閉
+about_text_html=<html>\n<head>\n<meta charset="utf-8"/>\n</head>\n<body>\n\n<h1>關於軟體</h1>\n<p><b>版本號：</b>Release Version 2.4.0<br/>\n<b>更新日期：</b>2025年11月2日</p>\n<hr/>\n\n<h2>作者與聲明</h2>\n<p>本軟體由 <b>Lzh10_慕黑</b> 創作，隸屬「GTAmod中文組」，部分程式碼來自「傾城劍舞」，並借用 GitHub 上的開源 GXT 解析程式碼。</p>\n<p><b>溫馨提醒：</b>僅支援 <u>III、VC、SA、IV</u> 版本 GXT 解析</p>\n<p><b>小提示：</b>按下 <b>Ctrl+M</b> 可開啟選單喔！</p>\n<p><font color="red"><b>免責聲明：</b></font> 本工具完全免費且開源，若透過付費管道取得則為盜版！使用本軟體所衍生的版權問題概不負責！</p>\n<p>若您為盜版受害者，請聯絡 QQ：\n<a href="tencent://message/?uin=235810290&Site=&Menu=yes">235810290</a></p>\n<hr/>\n\n<h2>更新日誌</h2>\n<p align="center">☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆</p>\n<p align="center"><font color="red"><b>本軟體用愛發電，歡迎在嗶哩嗶哩「Lzh10_慕黑」支持我！</b></font></p>\n\n<blockquote>\n<h3>V2.4.0</h3>\n<ul>\n    <li>新增程式底部狀態列，顯示解析 GXT 關鍵資訊</li>\n    <li>新增右鍵選單</li>\n    <li>新增背景設定功能，可自訂背景圖片</li>\n    <li>新增字體選擇功能，可自訂顯示字體</li>\n    <li>大幅優化代碼表轉換功能，支援代碼表掛載、線上選擇代碼表、逆向轉換</li>\n    <li>新增左下角顯示遊戲版本圖示</li>\n    <li>新增程式初始化顯示歡迎詞</li>\n    <li>新增選取字元按「Alt」鍵顯示對應 Unicode</li>\n    <li>新增除錯選單中的代碼表編輯器功能</li>\n    <li>新增表名編輯，支援與側邊欄同步</li>\n    <li>新增修改表名或新增表名在狀態列顯示</li>\n    <li>新增底部列顯示解析 Unix 時間</li>\n    <li>修正加減列導致列號顯示錯誤的問題</li>\n    <li>修正新寫入表名無法識別為表名的問題</li>\n    <li>修正 GTAIV 無表 GXT 的解析問題</li>\n    <li>修正 GXT 空鍵無法解析的問題</li>\n    <li>修正智慧翻譯最後一批次卡住的問題</li>\n    <li>移除大部分元素的白色背景</li>\n    <li>統一所有捲軸的樣式</li>\n    <li>優化彈出關於視窗的動畫效果</li>\n    <li>左側表格導覽使用粗體字</li>\n    <li>上方五個按鈕選項增加透明度</li>\n    <li>修正正則表示式按鈕初始化時尺寸不正確的問題</li>\n    <li>移除語言選擇下拉欄，放置在右鍵選單中</li>\n</ul>\n\n<h3>V2.3.1</h3>\n<ul>\n    <li>修正了儲存 GXT 時的錯誤</li>\n</ul>\n\n<h3>V2.3.0</h3>\n<ul>\n    <li>為除錯選單套用相同的美化樣式</li>\n    <li>修正了 GTAIV 的解析演算法，完全符合規範</li>\n    <li>還原舊版本內容區的粗體</li>\n    <li>新增繁體貼圖渲染，同時生成對應字庫映射 .dat 檔案</li>\n    <li>變更介面配置，採用左側表格導覽欄</li>\n    <li>新增智慧翻譯功能，可輸入 Deepseek API 金鑰自動翻譯文字</li>\n    <li>修正滑鼠懸停標題時顯示的文字</li>\n    <li>重寫除錯選單功能項，能輸出字元表</li>\n    <li>GXT 建構器使用 Python 實作</li>\n    <li>修正 GTAIV 版本建構錯誤</li>\n    <li>優化表格渲染與自動更新功能</li>\n    <li>修改編輯 GXT 邏輯，自動備份原始檔案</li>\n    <li>更換除錯選單字型為「微軟正黑體」</li>\n    <li>新增更多文字項在 lang 檔中</li>\n    <li>優化檢索邏輯，減少搜尋卡頓</li>\n    <li>關於視窗增加淡入效果</li>\n    <li>搜尋功能支援正則表示式</li>\n    <li>主介面按鈕使用粗體與陰影</li>\n</ul>\n\n<h3>V2.2.0</h3>\n<ul>\n    <li>基於 PyQt6 重構應用底層</li>\n    <li>重構解析邏輯，提升速度</li>\n    <li>優化表格渲染與捲軸</li>\n    <li>增加表格列號與列操作優化</li>\n    <li>新增 TXT 匯入與自動識別 GTA 版本</li>\n    <li>新增除錯選單 (Ctrl+M)</li>\n    <li>視窗頂端顯示 GXT 解析時間</li>\n    <li>美化表格樣式，支援斑馬紋</li>\n    <li>關於視窗更換為新樣式</li>\n    <li>優化更新檢查與字體使用</li>\n</ul>\n<h3>V2.1.0</h3>\n<ul>\n    <li>藍白主題 GUI 樣式</li>\n    <li>統一表格字級與列高</li>\n    <li>平面圓角捲軸</li>\n    <li>優化增減列邏輯</li>\n    <li>按鈕懸停變色與安全性強化</li>\n    <li>新增檢查更新功能</li>\n</ul>\n\n<h3>V2.0.0</h3>\n<ul>\n    <li>新增編輯功能，可直接儲存 GXT</li>\n    <li>新增分表查找功能</li>\n    <li>新增檢索功能</li>\n    <li>支援增減列數</li>\n    <li>僅保留繁體中文語系（原為簡中）</li>\n    <li>優化表格效能，取消粗體</li>\n</ul>\n\n<h3>V1.x 系列</h3>\n<ul>\n    <li>V1.2.6B：視窗標題顯示版本</li>\n    <li>V1.2.6A：支援多語言熱重載</li>\n    <li>V1.2.6：修正 UTF-16-LE 解析錯誤，優化說明頁</li>\n    <li>V1.2.5：新增另存為文字與清除表格功能</li>\n    <li>V1.2.4/4A：新增 GTAIV 解析</li>\n    <li>V1.2.3：按鈕圓角設計，支援檔案拖放</li>\n    <li>V1.2.2：新增提取文字代碼表轉換功能</li>\n    <li>V1.2.1：支援自由調整視窗大小</li>\n    <li>V1.2：支援 GTA3，修正命令列輸入錯誤</li>\n    <li>V1.1：新增 TABLE 分文本功能</li>\n</ul>\n</blockquote>\n<hr/>\n\n<h2>支援與回饋</h2>\n<p>開源與更新檢查：<br/>\n<a href=\"https://github.com/Lzh102938/III.VC.SAGXTExtracter\">\nhttps://github.com/Lzh102938/III.VC.SAGXTExtracter</a></p>\n<p>歡迎在 GitHub 上建立 Issue 回報問題！</p>\n\n<hr/>\n<p align=\"center\"><i>© GTAmod中文組 · 2025</i><br/>\n☆☆☆☆☆☆☆★★★★★★★★★★★☆☆☆☆☆☆☆</p>\n\n</body>\n</html>

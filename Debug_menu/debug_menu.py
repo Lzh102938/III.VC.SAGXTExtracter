@@ -249,9 +249,36 @@ class DebugMenuDialog(QDialog):
         self.title_label.setText(action["name"])
         try:
             result = action["func"]()
-            if isinstance(result, tuple) and len(result) == 2:
+            # 特殊处理码表编辑器界面
+            if isinstance(result, tuple) and len(result) == 2 and result[0] == "码表编辑器界面":
+                content, widgets = result
+                # 隐藏文本编辑器和保存按钮
+                self.text_edit.hide()
+                if self.save_btn is not None:
+                    self.save_btn.hide()
+                
+                # 清除旧的自定义组件
+                for i in reversed(range(self.content_layout.count())):
+                    item = self.content_layout.itemAt(i)
+                    if item:
+                        widget = item.widget()
+                        if widget is not None and isinstance(widget, QLabel) and widget != self.title_label:
+                            self.content_layout.removeWidget(widget)
+                            widget.deleteLater()
+                        elif widget is not None and widget not in [self.title_label, self.text_edit]:
+                            # 检查是否是我们要保留的组件（标题标签和文本编辑器除外）
+                            if widget != self.content_widget:
+                                self.content_layout.removeWidget(widget)
+                                widget.deleteLater()
+                
+                # 添加码表编辑器界面
+                if widgets:
+                    self.content_layout.insertWidget(1, widgets[0])
+            elif isinstance(result, tuple) and len(result) == 2:
                 content, pixmaps = result
                 self.text_edit.setText(str(content) if content else "(无内容)")
+                # 显示文本编辑器
+                self.text_edit.show()
                 # 清除旧图
                 for i in reversed(range(self.content_layout.count())):
                     item = self.content_layout.itemAt(i)
@@ -260,6 +287,11 @@ class DebugMenuDialog(QDialog):
                         if widget is not None and isinstance(widget, QLabel) and widget != self.title_label:
                             self.content_layout.removeWidget(widget)
                             widget.deleteLater()
+                        elif widget is not None and widget not in [self.title_label, self.text_edit]:
+                            # 移除可能的其他自定义组件
+                            if widget != self.content_widget:
+                                self.content_layout.removeWidget(widget)
+                                widget.deleteLater()
                 # 添加新图
                 for pix in pixmaps:
                     img_label = QLabel()
@@ -290,7 +322,9 @@ class DebugMenuDialog(QDialog):
                     if self.save_btn is not None:
                         self.save_btn.hide()
             else:
+                # 显示文本内容
                 self.text_edit.setText(str(result) if result else "(无内容)")
+                self.text_edit.show()
                 # 清除旧图（当函数不返回图片时）
                 for i in reversed(range(self.content_layout.count())):
                     item = self.content_layout.itemAt(i)
@@ -299,12 +333,21 @@ class DebugMenuDialog(QDialog):
                         if widget is not None and isinstance(widget, QLabel) and widget != self.title_label:
                             self.content_layout.removeWidget(widget)
                             widget.deleteLater()
+                        elif widget is not None and widget not in [self.title_label, self.text_edit]:
+                            # 移除可能的其他自定义组件
+                            if widget != self.content_widget:
+                                self.content_layout.removeWidget(widget)
+                                widget.deleteLater()
                 # 清除当前图片引用
                 if hasattr(self, 'current_pixmaps'):
                     delattr(self, 'current_pixmaps')
+                # 隐藏保存按钮
+                if self.save_btn is not None:
+                    self.save_btn.hide()
         except Exception as e:
             self.text_edit.setText(f"发生异常: {e}")
-            # 出现异常时也清除图片
+            self.text_edit.show()
+            # 出现异常时也清除图片和其他自定义组件
             for i in reversed(range(self.content_layout.count())):
                 item = self.content_layout.itemAt(i)
                 if item:
@@ -312,8 +355,15 @@ class DebugMenuDialog(QDialog):
                     if widget is not None and isinstance(widget, QLabel) and widget != self.title_label:
                         self.content_layout.removeWidget(widget)
                         widget.deleteLater()
+                    elif widget is not None and widget not in [self.title_label, self.text_edit]:
+                        if widget != self.content_widget:
+                            self.content_layout.removeWidget(widget)
+                            widget.deleteLater()
             if hasattr(self, 'current_pixmaps'):
                 delattr(self, 'current_pixmaps')
+            # 隐藏保存按钮
+            if self.save_btn is not None:
+                self.save_btn.hide()
             
     def _save_pixmap(self):
         if not hasattr(self, 'current_pixmaps') or not self.current_pixmaps:
@@ -486,6 +536,12 @@ class DebugMenu:
                 "tip": "将非ASCII字符生成4096x4096的图片，每行64个字符。",
                 "icon": icons["file"],
                 "func": self.generate_char_texture,
+            },
+            {
+                "name": "码表编辑器",
+                "tip": "编辑和管理码表文件，支持导入、导出和字符处理。",
+                "icon": icons["settings"],
+                "func": self.coding_table_editor,
             },
         ]
 
@@ -969,3 +1025,338 @@ class DebugMenu:
             self.char_positions = char_positions
         
         return "字符贴图生成完成。", [scaled_pixmap]
+
+    def coding_table_editor(self):
+        """
+        码表编辑器功能，用于编辑和管理码表文件。
+        """
+        from PyQt6.QtWidgets import (
+            QTableWidget, QTableWidgetItem, QHeaderView, QButtonGroup, 
+            QRadioButton, QLineEdit, QGroupBox, QTextEdit, QHBoxLayout
+        )
+        from PyQt6.QtCore import Qt
+        
+        # 创建主部件
+        widget = QWidget()
+        layout = QHBoxLayout(widget)  # 主布局改为水平布局
+        
+        # 左侧区域 - 垂直布局放置两个功能框
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        
+        # 创建字符输入区域
+        char_input_group = QGroupBox("添加字符")
+        char_input_layout = QVBoxLayout(char_input_group)
+        
+        # 字符输入框
+        char_input_label = QLabel("输入字符（将自动去重）:")
+        char_input_edit = QTextEdit()
+        char_input_edit.setMaximumHeight(80)
+        char_input_edit.setStyleSheet("""
+            QTextEdit {
+                background: white;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+                font-family: 'Microsoft YaHei UI', 'Microsoft YaHei';
+                font-size: 14px;
+                color: #2D3748;
+                padding: 8px;
+            }
+        """)
+        
+        # 排序选项
+        sort_layout = QHBoxLayout()
+        sort_label = QLabel("排序方式:")
+        original_order_radio = QRadioButton("原始排序")
+        unicode_order_radio = QRadioButton("Unicode排序")
+        unicode_order_radio.setChecked(True)
+        # 确保使用独立的单选框组
+        sort_button_group = QButtonGroup()
+        sort_button_group.addButton(original_order_radio)
+        sort_button_group.addButton(unicode_order_radio)
+        
+        sort_layout.addWidget(sort_label)
+        sort_layout.addWidget(original_order_radio)
+        sort_layout.addWidget(unicode_order_radio)
+        sort_layout.addStretch()
+        
+        # 添加字符按钮
+        add_chars_button = QPushButton("填充字符")
+        add_chars_button.clicked.connect(
+            lambda: self._fill_characters(
+                char_input_edit.toPlainText(), 
+                table, 
+                unicode_order_radio.isChecked()
+            )
+        )
+        
+        char_input_layout.addWidget(char_input_label)
+        char_input_layout.addWidget(char_input_edit)
+        char_input_layout.addLayout(sort_layout)
+        char_input_layout.addWidget(add_chars_button)
+        
+        # 创建HEX填充区域
+        hex_group = QGroupBox("HEX填充")
+        hex_layout = QVBoxLayout(hex_group)
+        
+        # 起始HEX输入
+        hex_input_layout = QHBoxLayout()
+        hex_label = QLabel("起始HEX:")
+        hex_input = QLineEdit()
+        hex_input.setPlaceholderText("例如: 8b5c")
+        hex_input.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #E2E8F0;
+                border-radius: 10px;
+                padding: 8px 12px;
+                background: white;
+                min-height: 20px;
+                font-family: 'Microsoft YaHei UI', 'Microsoft YaHei';
+                font-size: 14px;
+                color: #2D3748;
+            }
+        """)
+        
+        hex_input_layout.addWidget(hex_label)
+        hex_input_layout.addWidget(hex_input)
+        
+        # 跳过HEX输入
+        skip_hex_layout = QHBoxLayout()
+        skip_hex_label = QLabel("跳过HEX:")
+        skip_hex_input = QLineEdit()
+        skip_hex_input.setPlaceholderText("例如: 8b5c,8b5d")
+        skip_hex_input.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #E2E8F0;
+                border-radius: 10px;
+                padding: 8px 12px;
+                background: white;
+                min-height: 20px;
+                font-family: 'Microsoft YaHei UI', 'Microsoft YaHei';
+                font-size: 14px;
+                color: #2D3748;
+            }
+        """)
+        
+        skip_hex_layout.addWidget(skip_hex_label)
+        skip_hex_layout.addWidget(skip_hex_input)
+        
+        # 排序选项
+        hex_sort_layout = QHBoxLayout()
+        hex_sort_label = QLabel("填充方向:")
+        ascending_radio = QRadioButton("正序")
+        descending_radio = QRadioButton("倒序")
+        ascending_radio.setChecked(True)
+        hex_sort_group = QButtonGroup()
+        hex_sort_group.addButton(ascending_radio)
+        hex_sort_group.addButton(descending_radio)
+        
+        hex_sort_layout.addWidget(hex_sort_label)
+        hex_sort_layout.addWidget(ascending_radio)
+        hex_sort_layout.addWidget(descending_radio)
+        hex_sort_layout.addStretch()
+        
+        # HEX填充按钮
+        hex_fill_button = QPushButton("HEX填充")
+        hex_fill_button.clicked.connect(
+            lambda: self._fill_hex_codes(
+                table, 
+                hex_input.text(), 
+                skip_hex_input.text(),
+                ascending_radio.isChecked()
+            )
+        )
+        
+        hex_layout.addLayout(hex_input_layout)
+        hex_layout.addLayout(skip_hex_layout)
+        hex_layout.addLayout(hex_sort_layout)
+        hex_layout.addWidget(hex_fill_button)
+        
+        # 将两个功能框添加到左侧布局
+        left_layout.addWidget(char_input_group)
+        left_layout.addWidget(hex_group)
+        left_layout.addStretch()  # 添加弹性空间
+        
+        # 右侧区域 - 表格和操作按钮
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        # 创建按钮布局
+        button_layout = QHBoxLayout()
+        
+        # 载入码表按钮
+        load_button = QPushButton("载入码表")
+        load_button.clicked.connect(lambda: self._load_coding_table(table))
+        
+        # 保存码表按钮
+        save_button = QPushButton("保存码表")
+        save_button.clicked.connect(lambda: self._save_coding_table(table))
+        
+        button_layout.addWidget(load_button)
+        button_layout.addWidget(save_button)
+        button_layout.addStretch()
+        
+        right_layout.addLayout(button_layout)
+        
+        # 创建表格
+        table = QTableWidget(0, 2)
+        table.setHorizontalHeaderLabels(["字符", "Unicode HEX"])
+        header = table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        v_header = table.verticalHeader()
+        if v_header:
+            v_header.setVisible(False)
+        table.setStyleSheet("""
+            QTableWidget {
+                background: white;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+                font-family: 'Microsoft YaHei UI', 'Microsoft YaHei';
+                font-size: 14px;
+                color: #2D3748;
+                padding: 5px;
+            }
+            QTableWidget::item {
+                padding: 8px;
+            }
+            QHeaderView::section {
+                background: #F1F5F9;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+            }
+        """)
+        
+        right_layout.addWidget(table)
+        
+        # 设置左右区域比例
+        layout.addWidget(left_widget, 1)   # 左侧占1份
+        layout.addWidget(right_widget, 3)  # 右侧占3份（表格区域更大）
+        
+        # 返回特殊标记，以便主界面正确处理
+        return "码表编辑器界面", [widget]
+
+    def _fill_characters(self, text, table, unicode_sorted):
+        """
+        填充字符到表格（舍弃原有内容，只保留排序方式）
+        """
+        from PyQt6.QtWidgets import QTableWidgetItem
+        
+        # 清空表格
+        table.setRowCount(0)
+        
+        # 提取所有字符并去重
+        chars = list(dict.fromkeys(text))  # 保持顺序的去重方法
+        
+        # 如果选择Unicode排序，则按Unicode排序
+        if unicode_sorted:
+            chars.sort()
+            
+        # 添加到表格
+        for char in chars:
+            if char.strip():  # 跳过空白字符
+                row = table.rowCount()
+                table.insertRow(row)
+                table.setItem(row, 0, QTableWidgetItem(char))
+                table.setItem(row, 1, QTableWidgetItem(""))  # HEX列留空，等待填写
+                
+    def _load_coding_table(self, table):
+        """
+        载入码表文件到表格
+        """
+        from PyQt6.QtWidgets import QTableWidgetItem
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            table, "载入码表", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+            # 清空表格
+            table.setRowCount(0)
+            
+            # 解析并填充数据
+            for line in lines:
+                parts = line.strip().split('\t')
+                if len(parts) >= 2:
+                    row = table.rowCount()
+                    table.insertRow(row)
+                    table.setItem(row, 0, QTableWidgetItem(parts[0]))
+                    table.setItem(row, 1, QTableWidgetItem(parts[1]))
+                    
+        except Exception as error:
+            QMessageBox.critical(table, "载入失败", f"载入码表时出错：{str(error)}")
+            
+    def _save_coding_table(self, table):
+        """
+        保存表格为码表文件
+        """
+        file_path, _ = QFileDialog.getSaveFileName(
+            table, "保存码表", "", "文本文件 (*.txt);;所有文件 (*)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                for row in range(table.rowCount()):
+                    char_item = table.item(row, 0)
+                    hex_item = table.item(row, 1)
+                    
+                    if char_item and hex_item:
+                        char = char_item.text()
+                        hex_code = hex_item.text()
+                        if char and hex_code:  # 只保存非空行
+                            f.write(f"{char}\t{hex_code}\n")
+                            
+            QMessageBox.information(table, "保存成功", f"码表已保存到：{file_path}")
+        except Exception as error:
+            QMessageBox.critical(table, "保存失败", f"保存码表时出错：{str(error)}")
+            
+    def _fill_hex_codes(self, table, start_hex, skip_hex, ascending):
+        """
+        为表格中的字符填充HEX编码（覆写模式）
+        """
+        from PyQt6.QtWidgets import QTableWidgetItem
+        
+        try:
+            # 解析起始HEX
+            start_value = int(start_hex, 16) if start_hex else 0
+            
+            # 解析跳过HEX值
+            skip_values = set()
+            if skip_hex:
+                for hex_str in skip_hex.split(','):
+                    hex_str = hex_str.strip()
+                    if hex_str:
+                        try:
+                            skip_values.add(int(hex_str, 16))
+                        except ValueError:
+                            pass  # 忽略无效的HEX值
+            
+            # 确定步进方向
+            step = 1 if ascending else -1
+            
+            # 填充HEX编码（覆写模式）
+            current_value = start_value
+            for row in range(table.rowCount()):
+                # 跳过指定的HEX值
+                while current_value in skip_values:
+                    current_value += step
+                
+                # 设置当前HEX值
+                item = QTableWidgetItem(format(current_value, '04x'))
+                table.setItem(row, 1, item)
+                current_value += step
+                    
+        except ValueError:
+            QMessageBox.critical(table, "HEX错误", "起始HEX格式不正确")
+        except Exception as error:
+            QMessageBox.critical(table, "填充失败", f"HEX填充时出错：{str(error)}")

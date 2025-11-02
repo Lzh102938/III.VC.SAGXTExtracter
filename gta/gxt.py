@@ -18,6 +18,8 @@ class III:
     def parseTKeyTDat(self, stream):
         # III极速优化：一次性读取TKEY和TDAT，批量numpy分割+批量解码
         size = findBlock(stream, 'TKEY')
+        if size == 0:
+            return []
         entry_count = size // 12
         if entry_count == 0:
             return []
@@ -25,8 +27,10 @@ class III:
         # III 假设结构为 (offset:uint32, key:8 bytes)
         tkey_np = np.frombuffer(tkey_data, dtype=[('offset', '<u4'), ('key', 'S8')])
         offsets = tkey_np['offset']
-        keys = [sys.intern(k.split(b'\x00')[0].decode(errors='ignore')) for k in tkey_np['key']]
+        keys = [k.split(b'\x00')[0].decode(errors='ignore') for k in tkey_np['key']]
         datSize = findBlock(stream, 'TDAT')
+        if datSize == 0:
+            return list(zip(keys, [""] * len(keys)))
         TDat = stream.read(datSize)
         if datSize == 0:
             return list(zip(keys, [""] * len(keys)))
@@ -41,7 +45,7 @@ class III:
             s = starts[i]
             e = ends[i]
             if s >= e:
-                values.append(sys.intern(""))
+                values.append("")
                 continue
             raw = arr[s:e].tobytes()
             try:
@@ -49,7 +53,7 @@ class III:
             except Exception:
                 v = ""
             v = v.rstrip('\x00')
-            values.append(sys.intern(v))
+            values.append(v)
         return list(zip(keys, values))
 
 class VC:
@@ -60,38 +64,34 @@ class VC:
         return _parseTables(stream)
 
     def parseTKeyTDat(self, stream):
-        # VC极速优化：一次性读取TKEY和TDAT，批量numpy分割+批量解码
         size = findBlock(stream, 'TKEY')
         entry_count = size // 12
-        if entry_count == 0:
-            return []
         tkey_data = stream.read(size)
         tkey_np = np.frombuffer(tkey_data, dtype=[('offset', '<u4'), ('key', 'S8')])
         offsets = tkey_np['offset']
-        keys = [sys.intern(k.split(b'\x00')[0].decode(errors='ignore')) for k in tkey_np['key']]
+        keys = [k.split(b'\x00')[0].decode(errors='ignore') for k in tkey_np['key']]
         datSize = findBlock(stream, 'TDAT')
         TDat = stream.read(datSize)
-        if datSize == 0:
-            return list(zip(keys, [""] * len(keys)))
         arr = np.frombuffer(TDat, dtype=np.uint16)
         zero_idx = np.where(arr == 0)[0]
         starts = offsets // 2
-        starts = np.clip(starts, 0, len(arr))
-        ends = np.searchsorted(zero_idx, starts, side='left')
-        ends = np.where(ends < len(zero_idx), zero_idx[ends], len(arr))
+        # safe handling for ends to avoid out-of-bounds indexing
+        ends_idx = np.searchsorted(zero_idx, starts, side='left')
+        ends = np.empty_like(ends_idx)
+        mask = ends_idx < zero_idx.size
+        ends[mask] = zero_idx[ends_idx[mask]]
+        ends[~mask] = len(arr)
         values = []
         for i in range(entry_count):
-            s = starts[i]; e = ends[i]
-            if s >= e:
-                values.append(sys.intern(""))
-                continue
-            raw = arr[s:e].tobytes()
+            raw = arr[starts[i]:ends[i]].tobytes()
             try:
                 v = raw.decode('utf-16le', errors='ignore')
             except Exception:
                 v = ""
-            v = v.rstrip('\x00')
-            values.append(sys.intern(v))
+            idx = v.find('\x00')
+            if idx != -1:
+                v = v[:idx]
+            values.append(v)
         return list(zip(keys, values))
 
 class SA:
@@ -104,6 +104,8 @@ class SA:
     def parseTKeyTDat(self, stream):
         # SA极速优化：一次性读取TKEY和TDAT，批量分割，批量解码
         size = findBlock(stream, 'TKEY')
+        if size == 0:
+            return []
         entry_count = size // 8
         if entry_count == 0:
             return []
@@ -112,6 +114,9 @@ class SA:
         offsets = tkey_np[:, 0]
         crcs = tkey_np[:, 1]
         datSize = findBlock(stream, 'TDAT')
+        if datSize == 0:
+            keys = [f"{crc:08X}" for crc in crcs]
+            return list(zip(keys, [""] * len(keys)))
         TDat = stream.read(datSize)
         if datSize == 0:
             keys = [f"{crc:08X}" for crc in crcs]
@@ -127,7 +132,7 @@ class SA:
         for i in range(entry_count):
             s = starts[i]; e = ends[i]
             if s >= e:
-                values.append(sys.intern(""))
+                values.append("")
                 continue
             raw = mv[s:e]
             try:
@@ -140,7 +145,7 @@ class SA:
                 except Exception:
                     v = raw.tobytes().decode('cp1252', errors='replace')
             v = v.rstrip('\x00')
-            values.append(sys.intern(v))
+            values.append(v)
         keys = [f"{crc:08X}" for crc in crcs]
         return list(zip(keys, values))
 
@@ -149,6 +154,10 @@ class IV:
         return True
 
     def parseTables(self, stream):
+        # 检查是否存在 TABL，如果没有就直接 fallback 到 main
+        peek = stream.peek(16)
+        if b'TABL' not in peek:
+            return [("MAIN", 0)]
         return _parseTables(stream)
 
     def parseTKeyTDat(self, stream):
@@ -158,6 +167,8 @@ class IV:
         - findBlock(stream, 'TKEY') 会定位到 TKEY 的 header 之后（流位置在数据区开始）。
         - 这里要在定位 TKEY 之前判断是否需要跳过表名。
         """
+        import struct
+        
         # 先 peek 足够字节以判断当前位置是表名还是直接是 TKEY
         head = stream.peek(8)
         # 若已有至少4字节并且前4字节是 TKEY，则当前位置直接为 TKEY header（不应跳过）
@@ -165,14 +176,35 @@ class IV:
             # 当前位置就是 TKEY header，findBlock 会定位并把流定位到 TKEY 数据区
             tkey_block_size = findBlock(stream, 'TKEY')
         else:
-            # 当前位置不是 TKEY header，应该是表名（非 MAIN 表）
-            # 为稳健性：如果 peek 小于 8 字节，仍尝试读取 8 字节表名（不会异常）
-            # 跳过 8 字节表名后，再查找 TKEY header
-            # 先尝试读取 8 字节（若不足则直接抛错）
-            name_bytes = stream.read(8)
-            if len(name_bytes) < 8:
-                raise ValueError("遇到异常的表名或文件截断（表名不足8字节）。")
-            tkey_block_size = findBlock(stream, 'TKEY')
+            # 检查是否是无TABL块的简化格式（开头可能有表数量字段）
+            format_head = stream.peek(4)[:4]
+            if format_head != b'TKEY':
+                # 可能是简化格式，尝试读取表数量字段
+                try:
+                    raw = stream.read(4)
+                    tbl_count = struct.unpack("<I", raw)[0]
+                    # 继续检查是否到达 TKEY
+                    head = stream.peek(4)[:4]
+                    if head == b'TKEY':
+                        block_name = stream.read(4)
+                        tkey_block_size = struct.unpack("<I", stream.read(4))[0]
+                    else:
+                        raise ValueError(f"预期 TKEY，但遇到 {head}")
+                except Exception:
+                    # 不是简化格式，回到原始逻辑处理表名
+                    stream.seek(stream.tell() - 4)  # 回退4字节
+                    # 当前位置不是 TKEY header，应该是表名（非 MAIN 表）
+                    # 为稳健性：如果 peek 小于 8 字节，仍尝试读取 8 字节表名（不会异常）
+                    # 跳过 8 字节表名后，再查找 TKEY header
+                    # 先尝试读取 8 字节（若不足则直接抛错）
+                    name_bytes = stream.read(8)
+                    if len(name_bytes) < 8:
+                        raise ValueError("遇到异常的表名或文件截断（表名不足8字节）。")
+                    tkey_block_size = findBlock(stream, 'TKEY')
+            else:
+                # 是标准格式，直接处理TKEY
+                block_name = stream.read(4)
+                tkey_block_size = struct.unpack("<I", stream.read(4))[0]
 
         # IV TKEY 每条 8 字节（4 字节偏移 + 4 字节 CRC/hash）
         entry_count = int(tkey_block_size // 8)

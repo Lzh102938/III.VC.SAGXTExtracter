@@ -67,10 +67,14 @@ class SAGXT:
                 fo_key_block = 12 + table_block_size
                 key_block_offset = fo_key_block
 
+                # 预先计算所有表的大小以优化文件写入
+                table_info = []
                 for table_name, entries in sorted(self.m_GxtData.items(), key=self._table_sort):
                     key_block_size = len(entries) * self.SizeOfTKEY
                     data_block_size = self._get_data_block_size(entries)
+                    table_info.append((table_name, entries, key_block_size, data_block_size))
 
+                for table_name, entries, key_block_size, data_block_size in table_info:
                     # 写入 TABL
                     f.seek(fo_table_block)
                     name_bytes = table_name.encode('ascii')[:7].ljust(8, b'\x00')
@@ -93,16 +97,24 @@ class SAGXT:
                     f.write(struct.pack('<I', data_block_size))
                     fo_data_block = f.tell()
 
-                    # 写入 TKEY 和 TDAT 实际数据
+                    # 批量写入 TKEY 和 TDAT 实际数据
+                    key_data = bytearray()
+                    data_blocks = []
+                    
                     for hash_key, value in entries.items():
-                        data_offset = fo_data_block - tdat_offset - 8
-                        f.seek(fo_key_block)
-                        f.write(struct.pack('<II', data_offset, hash_key))
-                        fo_key_block += self.SizeOfTKEY
-                        f.seek(fo_data_block)
-                        f.write(value.encode('utf-8') + b'\x00')
-                        fo_data_block = f.tell()
-
+                        data_offset = len(b''.join(data_blocks))
+                        key_data.extend(struct.pack('<II', data_offset, hash_key))
+                        data_blocks.append(value.encode('utf-8') + b'\x00')
+                    
+                    # 一次性写入所有TKEY数据
+                    f.seek(fo_key_block)
+                    f.write(key_data)
+                    
+                    # 一次性写入所有TDAT数据
+                    f.seek(fo_data_block)
+                    for data_block in data_blocks:
+                        f.write(data_block)
+                        
                     fo_key_block = f.tell()
                     key_block_offset = fo_key_block
         except Exception as e:

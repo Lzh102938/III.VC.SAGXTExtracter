@@ -63,10 +63,16 @@ async def translate_batch(self, batch, api_key, semaphore):
             "temperature": 0.1,
             "stream": False
         }
+        # 仅在日志中隐藏部分API密钥，实际请求中使用完整密钥
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        log_headers = {
+            "Authorization": f"Bearer {api_key[:3]}{'*' * (len(api_key) - 6)}{api_key[-3:]}" if api_key else "",
+            "Content-Type": "application/json"
+        }
+        logger.info(f"请求头(隐藏密钥): {log_headers}")
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)) as session:
             for retry in range(MAX_RETRIES + 1):
                 try:
@@ -74,8 +80,13 @@ async def translate_batch(self, batch, api_key, semaphore):
                     async with session.post(API_URL, json=data) as resp:
                         if resp.status != 200:
                             error_text = await resp.text()
-                            logger.error(f"API错误: {resp.status} {error_text}")
-                            raise Exception(f"API错误: {resp.status} {error_text}")
+                            # 在错误信息中隐藏API密钥
+                            masked_error_text = error_text.replace(api_key, f"{api_key[:3]}{'*' * (len(api_key) - 6)}{api_key[-3:]}") if api_key else error_text
+                            logger.error(f"API错误: {resp.status} {masked_error_text}")
+                            # 如果是认证错误，直接抛出异常，不需要重试
+                            if resp.status == 401:
+                                raise Exception(self.tr("error_invalid_api_key"))
+                            raise Exception(f"API错误: {resp.status} {masked_error_text}")
                         resp_json = await resp.json()
                         result_text = resp_json["choices"][0]["message"]["content"].strip()
                         logger.info(f"API响应成功，结果长度: {len(result_text)} 字符，内容预览: {result_text[:10]}")
@@ -92,9 +103,11 @@ async def translate_batch(self, batch, api_key, semaphore):
                         logger.info(f"批次翻译完成，返回 {len(translations)} 条翻译结果")
                         return translations
                 except Exception as e:
-                    logger.warning(f"批次翻译失败({retry+1}/{MAX_RETRIES}): {e}")
-                    if retry == MAX_RETRIES:
-                        logger.error(f"批次翻译最终失败: {e}")
+                    # 在异常信息中隐藏API密钥
+                    masked_error_msg = str(e).replace(api_key, f"{api_key[:3]}{'*' * (len(api_key) - 6)}{api_key[-3:]}") if api_key else str(e)
+                    logger.warning(f"批次翻译失败({retry+1}/{MAX_RETRIES+1}): {masked_error_msg}")
+                    if retry == MAX_RETRIES or ("invalid_api_key" in str(e)):
+                        logger.error(f"批次翻译最终失败: {masked_error_msg}")
                         raise
                     await asyncio.sleep(2 ** retry)
             # 最终失败
@@ -137,7 +150,8 @@ async def translate_all(self, lines, progress_callback=None, api_key=None):
                     
                     # 更新完成批次计数
                     completed_batches += 1
-                    processed = completed_batches * BATCH_SIZE if completed_batches < total_batches else total
+                    # 修复：正确计算已处理的行数
+                    processed = sum(len(b) for b in batches[:completed_batches])
                     
                     # 更新进度
                     logger.info(f"已完成 {completed_batches}/{total_batches} 个批次翻译")
@@ -148,7 +162,13 @@ async def translate_all(self, lines, progress_callback=None, api_key=None):
                 
                 return translations
             except Exception as e:
-                logger.error(f"批次翻译失败 (重试 {retry + 1}/{MAX_RETRIES}): {e}")
+                logger.error(f"批次翻译失败 (重试 {retry + 1}/{MAX_RETRIES+1}): {e}")
+                # 如果是API密钥无效错误，直接终止所有翻译任务
+                if "invalid_api_key" in str(e):
+                    logger.warning("检测到API密钥无效，终止所有翻译任务")
+                    if progress_callback:
+                        progress_callback(0, total, self.tr("error_invalid_api_key"))
+                    raise
                 if retry == MAX_RETRIES:
                     logger.warning(f"批次翻译最终失败，跳过该批次")
                     break
@@ -167,6 +187,12 @@ async def translate_all(self, lines, progress_callback=None, api_key=None):
         logger.warning("翻译任务被取消，保留已翻译内容")
     except Exception as e:
         logger.error(f"翻译过程中发生错误: {e}")
+        if "invalid_api_key" in str(e):
+            if progress_callback:
+                progress_callback(0, total, self.tr("error_invalid_api_key"))
+            else:
+                QMessageBox.warning(self, self.tr("error_title"), self.tr("error_invalid_api_key"))
+            return
         if progress_callback:
             progress_callback(completed_batches * BATCH_SIZE, total, f"翻译出错: {str(e)}")
     
